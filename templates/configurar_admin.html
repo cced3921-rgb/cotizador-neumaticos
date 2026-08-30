@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ ajustes.nombre_negocio }} - Configuracion inicial</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body style="background: var(--acento); min-height:100vh; display:flex; align-items:center; justify-content:center;">
+  <div class="panel" style="width:100%; max-width:400px; margin:20px;">
+    <h2 style="margin-top:0; text-align:center;">Bienvenido</h2>
+    <p style="text-align:center; color:var(--texto-suave); font-size:13px; margin-top:-8px;">
+      Es la primera vez que se abre el sistema. Crea tu cuenta de administrador para empezar.
+    </p>
+
+    {% with mensajes = get_flashed_messages(with_categories=true) %}
+      {% if mensajes %}
+        {% for categoria, texto in mensajes %}
+          <div class="flash {{ 'ok' if categoria == 'ok' else 'error' }}">{{ texto }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post">
+      <div class="form-grid una-col">
+        <div>
+          <label>Tu nombre</label>
+          <input type="text" name="nombre" value="{{ nombre or '' }}" autofocus required>
+        </div>
+        <div>
+          <label>Usuario (para iniciar sesion)</label>
+          <input type="text" name="usuario" value="{{ usuario or '' }}" required>
+        </div>
+        <div>
+          <label>Contraseña</label>
+          <input type="password" name="password" minlength="4" required>
+        </div>
+        <div>
+          <label>Repetir contraseña</label>
+          <input type="password" name="password_confirmar" minlength="4" required>
+        </div>
+      </div>
+      <div style="margin-top:18px;">
+        <button class="btn btn-primario" type="submit" style="width:100%; justify-content:center;">Crear cuenta y entrar</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

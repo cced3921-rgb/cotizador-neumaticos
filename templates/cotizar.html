@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Armar cotizacion</h2>
+</div>
+
+<div class="grid-cotizar">
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">1. Cliente</h3>
+      <div class="form-grid">
+        <div>
+          <label>Contacto existente</label>
+          <select id="select-contacto">
+            <option value="">— Cliente nuevo —</option>
+            {% for c in contactos %}
+              <option value="{{ c.id }}" data-nombre="{{ c.nombre }}" data-telefono="{{ c.telefono }}"
+                {{ 'selected' if request.args.get('contacto_id')|string == c.id|string else '' }}>
+                {{ c.nombre }} ({{ c.telefono }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div></div>
+        <div>
+          <label>Nombre</label>
+          <input type="text" id="campo-nombre" placeholder="Nombre del cliente">
+        </div>
+        <div>
+          <label>Telefono (WhatsApp)</label>
+          <input type="tel" id="campo-telefono" placeholder="0991234567">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0;">2. Neumaticos</h3>
+      <input type="search" id="buscador-productos" placeholder="Buscar en el catalogo..." style="margin-bottom:10px;">
+      <div class="lista-productos" id="lista-productos">
+        {% for p in productos %}
+        <div class="fila-producto" data-buscar="{{ (p.marca ~ ' ' ~ p.modelo ~ ' ' ~ p.medida)|lower }}">
+          {% if p.imagen_procesada %}
+            <img src="{{ url_for('servir_imagen_procesada', nombre=p.imagen_procesada) }}" alt="">
+          {% else %}
+            <div style="width:48px;height:36px;border-radius:6px;background:#eee;flex-shrink:0;"></div>
+          {% endif %}
+          <div class="info">
+            <strong>{{ p.marca }} {{ p.modelo }}</strong>
+            <small>{{ p.medida }} · ${{ "%.2f"|format(p.precio) }} · stock {{ p.stock }}</small>
+          </div>
+          <input type="checkbox" class="chk-producto" value="{{ p.id }}" data-precio="{{ p.precio }}">
+          <input type="number" class="cant-producto" value="1" min="1">
+        </div>
+        {% endfor %}
+        {% if not productos %}
+        <div class="vacio">Agrega neumaticos al catalogo primero.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">3. IVA y total</h3>
+      <div class="resumen-item"><span>Subtotal (sin IVA)</span><span id="resumen-subtotal">$0.00</span></div>
+      <div class="resumen-item" style="align-items:center;">
+        <span>IVA (<span id="etiqueta-iva-porcentaje">15</span>%)</span>
+        <span style="display:flex; align-items:center; gap:6px;">
+          $<input type="number" id="campo-iva" step="0.01" min="0" value="0.00" style="width:90px; text-align:right; padding:4px 6px;">
+        </span>
+      </div>
+      <div id="aviso-iva-manual" style="display:none; font-size:12px; margin-top:4px;">
+        <span style="color:var(--texto-suave);">IVA editado a mano.</span>
+        <a href="#" id="btn-recalcular-iva">↺ Recalcular automatico (15%)</a>
+      </div>
+      <div class="total-linea"><span>Total</span><span id="resumen-total">$0.00</span></div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0;">4. Generar y enviar</h3>
+      <p style="font-size:13px; color:var(--texto-suave); margin-top:-6px;">
+        <strong>Cotizacion:</strong> solo el listado de precios, sin IVA ni total (para mostrar opciones).<br>
+        <strong>Proforma:</strong> con IVA y total — el precio final una vez que el cliente decide.
+      </p>
+      <div style="display:flex; gap:10px;">
+        <button class="btn" id="btn-generar-cotizacion" data-tipo="cotizacion" type="button" style="flex:1;">📋 Enviar Cotizacion</button>
+        <button class="btn btn-primario" id="btn-generar-proforma" data-tipo="proforma" type="button" style="flex:1;">🧾 Enviar Proforma</button>
+      </div>
+
+      <div id="bloque-resultado" style="display:none; margin-top:16px;">
+        <div style="margin-top:12px;">
+          <a id="link-ver-pdf" href="#" target="_blank" class="btn" style="width:100%; justify-content:center;">📄 Ver el PDF generado (<span id="etiqueta-tipo-generado"></span>)</a>
+        </div>
+
+        <label style="margin-top:14px;">Mensaje del chat (puedes editarlo antes de enviar)</label>
+        <textarea id="texto-mensaje" rows="3" class="mensaje-preview"></textarea>
+
+        <div style="background:#fff8e6; border:1px solid #f0d98c; border-radius:8px; padding:10px 12px; margin-top:12px; font-size:13px;">
+          <strong>Importante:</strong> WhatsApp no permite adjuntar archivos automaticamente
+          desde un link, asi que el PDF hay que pegarlo a mano (es 1 solo paso extra):
+          <ol style="margin:6px 0 0; padding-left: 18px;">
+            <li>El PDF ya se copio solo al portapapeles.</li>
+            <li>Presiona el boton de abajo: se abrira WhatsApp con el mensaje listo.</li>
+            <li>En el chat, presiona <strong>Ctrl+V</strong> para adjuntar el PDF y dale Enviar.</li>
+          </ol>
+        </div>
+
+        <div id="estado-portapapeles" style="font-size:13px; margin-top:6px; min-height:18px;"></div>
+
+        <div class="acciones-envio">
+          <button class="btn btn-primario" id="btn-confirmar" type="button">Copiar PDF y abrir WhatsApp</button>
+        </div>
+      </div>
+      <div id="mensaje-error" style="color:var(--peligro); font-size:13px; margin-top:10px;"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const selectContacto = document.getElementById('select-contacto');
+const campoNombre = document.getElementById('campo-nombre');
+const campoTelefono = document.getElementById('campo-telefono');
+
+function sincronizarContacto() {
+  const opcion = selectContacto.options[selectContacto.selectedIndex];
+  if (opcion && opcion.value) {
+    campoNombre.value = opcion.dataset.nombre || '';
+    campoTelefono.value = opcion.dataset.telefono || '';
+    campoNombre.disabled = true;
+    campoTelefono.disabled = true;
+  } else {
+    campoNombre.disabled = false;
+    campoTelefono.disabled = false;
+  }
+}
+selectContacto.addEventListener('change', sincronizarContacto);
+sincronizarContacto();
+
+document.getElementById('buscador-productos').addEventListener('input', (e) => {
+  const texto = e.target.value.toLowerCase();
+  document.querySelectorAll('.fila-producto').forEach(fila => {
+    fila.style.display = fila.dataset.buscar.includes(texto) ? 'flex' : 'none';
+  });
+});
+
+function itemsSeleccionados() {
+  const items = [];
+  document.querySelectorAll('.chk-producto:checked').forEach(chk => {
+    const fila = chk.closest('.fila-producto');
+    const cantidad = parseInt(fila.querySelector('.cant-producto').value || '1', 10);
+    items.push({ producto_id: parseInt(chk.value, 10), cantidad });
+  });
+  return items;
+}
+
+// --- IVA (15%) automatico, con opcion de sobreescribirlo a mano ---
+const TASA_IVA = 0.15;
+const campoIva = document.getElementById('campo-iva');
+const resumenSubtotal = document.getElementById('resumen-subtotal');
+const resumenTotal = document.getElementById('resumen-total');
+const avisoIvaManual = document.getElementById('aviso-iva-manual');
+let ivaEsManual = false;
+let subtotalActual = 0;
+
+function totalCatalogoSeleccionado() {
+  let total = 0;
+  document.querySelectorAll('.chk-producto:checked').forEach(chk => {
+    const fila = chk.closest('.fila-producto');
+    const cantidad = parseInt(fila.querySelector('.cant-producto').value || '1', 10);
+    total += parseFloat(chk.dataset.precio || '0') * cantidad;
+  });
+  return total;
+}
+
+function actualizarSubtotalEIva() {
+  const totalCatalogo = totalCatalogoSeleccionado();
+  subtotalActual = totalCatalogo / (1 + TASA_IVA);
+  resumenSubtotal.textContent = '$' + subtotalActual.toFixed(2);
+  if (!ivaEsManual) {
+    campoIva.value = (totalCatalogo - subtotalActual).toFixed(2);
+  }
+  actualizarTotalFinal();
+}
+
+function actualizarTotalFinal() {
+  const ivaActual = parseFloat(campoIva.value || '0');
+  resumenTotal.textContent = '$' + (subtotalActual + ivaActual).toFixed(2);
+}
+
+document.getElementById('lista-productos').addEventListener('change', (e) => {
+  if (e.target.classList.contains('chk-producto') || e.target.classList.contains('cant-producto')) {
+    actualizarSubtotalEIva();
+  }
+});
+document.getElementById('lista-productos').addEventListener('input', (e) => {
+  if (e.target.classList.contains('cant-producto')) actualizarSubtotalEIva();
+});
+
+campoIva.addEventListener('input', () => {
+  ivaEsManual = true;
+  avisoIvaManual.style.display = 'block';
+  actualizarTotalFinal();
+});
+
+document.getElementById('btn-recalcular-iva').addEventListener('click', (e) => {
+  e.preventDefault();
+  ivaEsManual = false;
+  avisoIvaManual.style.display = 'none';
+  actualizarSubtotalEIva();
+});
+
+const bloqueResultado = document.getElementById('bloque-resultado');
+const mensajeError = document.getElementById('mensaje-error');
+const estadoPortapapeles = document.getElementById('estado-portapapeles');
+let cotizacionActual = null; // { cotizacion_id, telefono_normalizado }
+
+async function copiarPdfAlPortapapeles(cotizacionId) {
+  const r = await fetch('/api/cotizar/copiar-pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cotizacion_id: cotizacionId }),
+  });
+  const d = await r.json();
+  return { ok: r.ok, error: d.error };
+}
+
+async function generarYEnviar(tipo) {
+  mensajeError.textContent = '';
+  estadoPortapapeles.textContent = '';
+  const items = itemsSeleccionados();
+  if (items.length === 0) {
+    mensajeError.textContent = 'Selecciona al menos un neumatico.';
+    return;
+  }
+  if (!campoTelefono.value.trim()) {
+    mensajeError.textContent = 'Falta el telefono del cliente.';
+    return;
+  }
+
+  const cuerpo = {
+    contacto_id: selectContacto.value ? parseInt(selectContacto.value, 10) : null,
+    nombre: campoNombre.value,
+    telefono: campoTelefono.value,
+    items,
+    tipo,
+    iva_manual: ivaEsManual ? parseFloat(campoIva.value || '0') : null,
+  };
+  const resp = await fetch('/api/cotizar/generar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cuerpo),
+  });
+  const datos = await resp.json();
+  if (!resp.ok) {
+    mensajeError.textContent = datos.error || 'Error generando la cotizacion.';
+    return;
+  }
+
+  cotizacionActual = { cotizacion_id: datos.cotizacion_id, telefono_normalizado: datos.telefono_normalizado };
+
+  // Sincroniza lo mostrado con lo que realmente quedo guardado (evita
+  // diferencias de centavos por redondeo entre el navegador y el servidor).
+  subtotalActual = datos.subtotal;
+  resumenSubtotal.textContent = '$' + datos.subtotal.toFixed(2);
+  campoIva.value = datos.iva.toFixed(2);
+  resumenTotal.textContent = '$' + datos.total.toFixed(2);
+  document.getElementById('texto-mensaje').value = datos.mensaje;
+  document.getElementById('link-ver-pdf').href = datos.pdf_url;
+  document.getElementById('etiqueta-tipo-generado').textContent = datos.tipo === 'proforma' ? 'Proforma' : 'Cotizacion';
+  bloqueResultado.style.display = 'block';
+
+  // Copiamos el PDF al portapapeles automaticamente: en el caso normal, no
+  // hace falta ningun clic extra antes de pegarlo en WhatsApp.
+  const resultado = await copiarPdfAlPortapapeles(datos.cotizacion_id);
+  estadoPortapapeles.style.color = resultado.ok ? 'var(--primario)' : 'var(--peligro)';
+  estadoPortapapeles.textContent = resultado.ok
+    ? '✔ PDF copiado al portapapeles — listo para pegar con Ctrl+V.'
+    : (resultado.error || 'No se pudo copiar el PDF automaticamente, prueba el boton de abajo.');
+}
+
+document.getElementById('btn-generar-cotizacion').addEventListener('click', () => generarYEnviar('cotizacion'));
+document.getElementById('btn-generar-proforma').addEventListener('click', () => generarYEnviar('proforma'));
+
+document.getElementById('btn-confirmar').addEventListener('click', async () => {
+  if (!cotizacionActual) {
+    mensajeError.textContent = 'Primero genera la cotizacion.';
+    return;
+  }
+  mensajeError.textContent = '';
+
+  // Reforzamos la copia justo antes de abrir WhatsApp, para que el
+  // portapapeles tenga seguro el PDF correcto en ese momento.
+  const resultado = await copiarPdfAlPortapapeles(cotizacionActual.cotizacion_id);
+  estadoPortapapeles.style.color = resultado.ok ? 'var(--primario)' : 'var(--peligro)';
+  estadoPortapapeles.textContent = resultado.ok
+    ? '✔ PDF copiado. En el chat que se abrio: Ctrl+V para adjuntarlo y Enviar.'
+    : (resultado.error || 'No se pudo copiar el PDF.');
+
+  const texto = document.getElementById('texto-mensaje').value;
+  const waLink = `https://wa.me/${cotizacionActual.telefono_normalizado}?text=${encodeURIComponent(texto)}`;
+  window.open(waLink, '_blank');
+});
+</script>
+{% endblock %}

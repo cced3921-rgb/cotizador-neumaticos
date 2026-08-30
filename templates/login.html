@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ ajustes.nombre_negocio }} - Iniciar sesion</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body style="background: var(--acento); min-height:100vh; display:flex; align-items:center; justify-content:center;">
+  <div class="panel" style="width:100%; max-width:360px; margin:20px;">
+    <h2 style="margin-top:0; text-align:center;">{{ ajustes.nombre_negocio }}</h2>
+    <p style="text-align:center; color:var(--texto-suave); font-size:13px; margin-top:-8px;">Cotizador de neumaticos</p>
+
+    {% with mensajes = get_flashed_messages(with_categories=true) %}
+      {% if mensajes %}
+        {% for categoria, texto in mensajes %}
+          <div class="flash {{ 'ok' if categoria == 'ok' else 'error' }}">{{ texto }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="post">
+      <div class="form-grid una-col">
+        <div>
+          <label>Usuario</label>
+          <input type="text" name="usuario" value="{{ usuario or '' }}" autofocus required>
+        </div>
+        <div>
+          <label>Contraseña</label>
+          <input type="password" name="password" required>
+        </div>
+      </div>
+      <div style="margin-top:18px;">
+        <button class="btn btn-primario" type="submit" style="width:100%; justify-content:center;">Ingresar</button>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

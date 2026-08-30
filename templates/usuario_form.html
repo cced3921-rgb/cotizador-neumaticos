@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>{{ 'Editar usuario' if es_nuevo == false else 'Nuevo usuario' }}</h2>
+  <a class="btn" href="{{ url_for('usuarios') }}">&larr; Volver a usuarios</a>
+</div>
+
+<div class="panel" style="max-width: 480px;">
+  <form method="post">
+    <div class="form-grid una-col">
+      {% if es_nuevo %}
+      <div>
+        <label>Usuario (para iniciar sesion)</label>
+        <input type="text" name="usuario" value="{{ usuario.usuario if usuario else '' }}" required>
+      </div>
+      {% else %}
+      <div>
+        <label>Usuario (para iniciar sesion)</label>
+        <input type="text" value="{{ usuario.usuario }}" disabled>
+        <p style="font-size:12px; color:var(--texto-suave); margin-top:4px;">El nombre de usuario no se puede cambiar.</p>
+      </div>
+      {% endif %}
+      <div>
+        <label>Nombre</label>
+        <input type="text" name="nombre" value="{{ usuario.nombre if usuario else '' }}" required>
+      </div>
+      <div>
+        <label>{{ 'Contraseña' if es_nuevo else 'Nueva contraseña (dejar en blanco para no cambiarla)' }}</label>
+        <input type="password" name="password" {{ 'required' if es_nuevo else '' }} minlength="4">
+      </div>
+      <div>
+        <label>Rol</label>
+        <select name="rol">
+          <option value="vendedor" {{ 'selected' if usuario and usuario.rol == 'vendedor' else '' }}>Vendedor (cotiza y gestiona sus propios contactos)</option>
+          <option value="admin" {{ 'selected' if usuario and usuario.rol == 'admin' else '' }}>Administrador (acceso completo)</option>
+        </select>
+      </div>
+      {% if not es_nuevo %}
+      <div>
+        <label style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" name="activo" value="1" {{ 'checked' if usuario.activo else '' }} style="width:auto;">
+          Usuario activo (puede iniciar sesion)
+        </label>
+      </div>
+      {% endif %}
+    </div>
+    <div style="margin-top:18px;">
+      <button class="btn btn-primario" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

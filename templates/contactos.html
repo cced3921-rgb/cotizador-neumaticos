@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Contactos (CRM)</h2>
+  <div style="display:flex; gap:10px;">
+    <a class="btn" href="{{ url_for('contactos_pipeline') }}">📊 Ver pipeline de ventas</a>
+    <a class="btn btn-primario" href="{{ url_for('contacto_nuevo') }}">+ Nuevo contacto</a>
+  </div>
+</div>
+
+<div class="panel" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 16px; text-align:center;">
+  <div>
+    <div style="font-size:24px; font-weight:700;">{{ resumen.total_contactos }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Clientes guardados</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700;">{{ resumen.total_cotizaciones }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Cotizaciones generadas</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700; color: var(--primario);">${{ "%.2f"|format(resumen.valor_cotizado) }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Valor total cotizado</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700;">{{ resumen.total_productos }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Neumaticos en catalogo</div>
+  </div>
+</div>
+
+<div class="panel">
+  <form method="get" class="filtros">
+    <input type="search" id="buscador-contactos" name="q" placeholder="Buscar por nombre o telefono..." value="{{ q }}" autocomplete="off">
+    <select name="estado">
+      <option value="">Todos los estados</option>
+      {% for e in estados %}
+        <option value="{{ e }}" {{ 'selected' if e == estado else '' }}>{{ e|capitalize }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn" type="submit">Filtrar por estado</button>
+  </form>
+</div>
+
+<div class="panel">
+  <details>
+    <summary style="cursor:pointer; font-weight:600; margin-bottom: 10px;">Importar contactos desde Excel/CSV</summary>
+    <p style="color:var(--texto-suave); font-size: 13px;">
+      Columnas: <code>nombre, telefono, origen, notas</code>. Solo
+      <code>nombre</code> y <code>telefono</code> son obligatorias. Los
+      contactos con un telefono que ya existe se omiten (no se duplican).
+    </p>
+    <form method="post" action="{{ url_for('contactos_importar') }}" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:center;">
+      <input type="file" name="archivo" accept=".xlsx,.csv" required>
+      <button class="btn btn-primario" type="submit">Importar</button>
+    </form>
+  </details>
+</div>
+
+<div class="panel">
+  {% if contactos %}
+  <table>
+    <thead>
+      <tr><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Ultimo contacto</th><th></th></tr>
+    </thead>
+    <tbody id="cuerpo-tabla-contactos">
+      {% for c in contactos %}
+      <tr data-buscar="{{ (c.nombre ~ ' ' ~ c.telefono)|lower }}">
+        <td>{{ c.nombre }}</td>
+        <td>{{ c.telefono }}</td>
+        <td><span class="badge badge-{{ c.estado }}">{{ c.estado|capitalize }}</span></td>
+        <td>{{ c.ultimo_contacto or '—' }}</td>
+        <td style="text-align:right;"><a class="btn btn-sm" href="{{ url_for('contacto_detalle', contacto_id=c.id) }}">Ver</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div id="aviso-sin-resultados" class="vacio" style="display:none;">Ningun contacto coincide con la busqueda.</div>
+  {% else %}
+  <div class="vacio">No hay contactos todavia. Se crean automaticamente al enviar una cotizacion, o puedes agregarlos a mano.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const buscadorContactos = document.getElementById('buscador-contactos');
+if (buscadorContactos) {
+  const filas = document.querySelectorAll('#cuerpo-tabla-contactos tr');
+  const avisoSinResultados = document.getElementById('aviso-sin-resultados');
+
+  buscadorContactos.addEventListener('input', () => {
+    const texto = buscadorContactos.value.trim().toLowerCase();
+    let visibles = 0;
+    filas.forEach(fila => {
+      const coincide = fila.dataset.buscar.includes(texto);
+      fila.style.display = coincide ? '' : 'none';
+      if (coincide) visibles++;
+    });
+    if (avisoSinResultados) {
+      avisoSinResultados.style.display = (texto && visibles === 0) ? 'block' : 'none';
+    }
+  });
+
+  // Evita que Enter recargue la pagina; la busqueda ya es instantanea.
+  buscadorContactos.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') e.preventDefault();
+  });
+}
+</script>
+{% endblock %}

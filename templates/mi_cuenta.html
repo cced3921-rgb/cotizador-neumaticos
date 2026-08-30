@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Mi cuenta</h2>
+</div>
+
+<div class="panel" style="max-width: 480px;">
+  <p style="font-size:14px;">
+    <strong>Usuario:</strong> {{ usuario_actual.usuario }}<br>
+    <strong>Rol:</strong> {{ 'Administrador' if usuario_actual.rol == 'admin' else 'Vendedor' }}
+  </p>
+  <form method="post">
+    <div class="form-grid una-col">
+      <div>
+        <label>Nombre</label>
+        <input type="text" name="nombre" value="{{ usuario_actual.nombre }}" required>
+      </div>
+      <div>
+        <label>Nueva contraseña (dejar en blanco para no cambiarla)</label>
+        <input type="password" name="password_nueva" minlength="4">
+      </div>
+    </div>
+    <div style="margin-top:18px;">
+      <button class="btn btn-primario" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

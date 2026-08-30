@@ -1,0 +1,17 @@
+# Entorno virtual de Python (cada quien crea el suyo con run.bat)
+.venv/
+
+# Cache de Python
+__pycache__/
+*.pyc
+
+# Datos reales del negocio: base de datos, PDFs generados, imagenes
+# subidas, logo. Nunca deben subirse a un repositorio (menos si es publico).
+# Se recrean solos (vacios) la primera vez que arranca la app.
+data/
+
+# Variables de entorno con secretos (si se usa un .env local)
+.env
+
+# Archivos temporales
+*.log

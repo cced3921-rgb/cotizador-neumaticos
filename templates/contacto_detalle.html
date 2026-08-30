@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>{{ contacto.nombre }}</h2>
+  <a class="btn" href="{{ url_for('contactos') }}">&larr; Volver a contactos</a>
+</div>
+
+<div class="grid-cotizar">
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">Historial de cotizaciones</h3>
+      {% if cotizaciones %}
+        {% for c in cotizaciones %}
+        <div style="border-bottom:1px solid var(--borde); padding: 10px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--texto-suave);">
+            <span>
+              {{ c.fecha }} · {{ 'PRO' if c.tipo == 'proforma' else 'COT' }}-{{ "%05d"|format(c.id) }}
+              <span class="badge {{ 'badge-vendido' if c.tipo == 'proforma' else 'badge-nuevo' }}" style="margin-left:6px;">{{ 'Proforma' if c.tipo == 'proforma' else 'Cotizacion' }}</span>
+            </span>
+            {% if c.tipo == 'proforma' %}<span>Total: ${{ "%.2f"|format(c.total) }}</span>{% endif %}
+          </div>
+          <ul style="margin: 6px 0 0; padding-left: 18px; font-size: 14px;">
+            {% for it in items_por_cotizacion[c.id] %}
+            <li>{{ it.marca }} {{ it.modelo }} {{ it.medida }} x{{ it.cantidad }} — ${{ "%.2f"|format(it.precio_unitario) }} c/u</li>
+            {% endfor %}
+          </ul>
+          {% if c.tipo == 'proforma' %}
+          <div style="font-size:12px; color:var(--texto-suave); margin-top:4px;">
+            Subtotal ${{ "%.2f"|format(c.subtotal) }} + IVA ${{ "%.2f"|format(c.iva) }}
+            {% if c.iva_manual %}<span title="IVA editado a mano">(manual)</span>{% endif %}
+          </div>
+          {% endif %}
+          <div style="margin-top:6px; display:flex; gap:6px;">
+            {% if c.pdf_archivo %}
+            <a class="btn btn-sm" href="{{ url_for('servir_pdf', nombre=c.pdf_archivo) }}" target="_blank">📄 Ver PDF</a>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-peligro btn-eliminar-cotizacion" data-cotizacion-id="{{ c.id }}">🗑️ Eliminar</button>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="vacio">Todavia no se le ha enviado ninguna cotizacion.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">Datos del contacto</h3>
+      <p style="font-size:14px;"><strong>Telefono:</strong> {{ contacto.telefono }}<br>
+      <strong>Origen:</strong> {{ contacto.origen or '—' }}<br>
+      <strong>Creado:</strong> {{ contacto.creado_en }}</p>
+
+      <form method="post" action="{{ url_for('contacto_actualizar', contacto_id=contacto.id) }}">
+        <label>Estado</label>
+        <select name="estado">
+          {% for e in estados %}
+            <option value="{{ e }}" {{ 'selected' if e == contacto.estado else '' }}>{{ e|capitalize }}</option>
+          {% endfor %}
+        </select>
+        <div style="margin-top:10px;">
+          <label>Notas</label>
+          <textarea name="notas" rows="4">{{ contacto.notas or '' }}</textarea>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn btn-primario" type="submit">Guardar</button>
+        </div>
+      </form>
+
+      <div style="margin-top:14px;">
+        <a class="btn" href="{{ url_for('cotizar') }}?contacto_id={{ contacto.id }}">Nueva cotizacion para este contacto</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.btn-eliminar-cotizacion').forEach(boton => {
+  boton.addEventListener('click', async () => {
+    if (!confirm('¿Eliminar esta cotizacion? Tambien se borra el PDF. Esta accion no se puede deshacer.')) return;
+
+    const cotizacionId = boton.dataset.cotizacionId;
+    boton.disabled = true;
+    const resp = await fetch(`/api/cotizaciones/${cotizacionId}/eliminar`, { method: 'POST' });
+    if (resp.ok) {
+      location.reload();
+    } else {
+      const datos = await resp.json().catch(() => ({}));
+      alert(datos.error || 'No se pudo eliminar la cotizacion.');
+      boton.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

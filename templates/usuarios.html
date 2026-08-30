@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Usuarios</h2>
+  <a class="btn btn-primario" href="{{ url_for('usuario_nuevo') }}">+ Nuevo usuario</a>
+</div>
+
+<div class="panel">
+  {% if usuarios %}
+  <table>
+    <thead>
+      <tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for u in usuarios %}
+      <tr>
+        <td>{{ u.usuario }}</td>
+        <td>{{ u.nombre }}</td>
+        <td><span class="badge {{ 'badge-vendido' if u.rol == 'admin' else 'badge-nuevo' }}">{{ 'Administrador' if u.rol == 'admin' else 'Vendedor' }}</span></td>
+        <td>
+          {% if u.activo %}<span class="badge badge-vendido">Activo</span>{% else %}<span class="badge badge-perdido">Inactivo</span>{% endif %}
+        </td>
+        <td style="text-align:right;"><a class="btn btn-sm" href="{{ url_for('usuario_editar', usuario_id=u.id) }}">Editar</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="vacio">No hay usuarios.</div>
+  {% endif %}
+</div>
+{% endblock %}

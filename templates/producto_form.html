@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>{{ 'Editar neumatico' if producto else 'Agregar neumatico' }}</h2>
+  <a class="btn" href="{{ url_for('catalogo') }}">&larr; Volver al catalogo</a>
+</div>
+
+<div class="panel" style="max-width: 640px;">
+  <form method="post" enctype="multipart/form-data">
+    <div class="form-grid">
+      <div>
+        <label>Marca</label>
+        <input type="text" name="marca" value="{{ producto.marca if producto else '' }}" required>
+      </div>
+      <div>
+        <label>Modelo</label>
+        <input type="text" name="modelo" value="{{ producto.modelo if producto else '' }}" required>
+      </div>
+      <div>
+        <label>Medida (ej. 195/65 R15)</label>
+        <input type="text" name="medida" value="{{ producto.medida if producto else '' }}" required>
+      </div>
+      <div>
+        <label>Precio (USD)</label>
+        <input type="number" step="0.01" min="0" name="precio" value="{{ producto.precio if producto else '' }}" required>
+      </div>
+      <div>
+        <label>Stock</label>
+        <input type="number" min="0" name="stock" value="{{ producto.stock if producto else 0 }}">
+      </div>
+      <div>
+        <label>Foto del neumatico</label>
+        <input type="file" name="imagen" accept=".jpg,.jpeg,.png,.webp">
+      </div>
+    </div>
+    <div style="margin-top:14px;">
+      <label>Descripcion / notas (opcional)</label>
+      <textarea name="descripcion" rows="3">{{ producto.descripcion if producto else '' }}</textarea>
+    </div>
+
+    {% if producto and producto.imagen_procesada %}
+    <div style="margin-top:14px;">
+      <label>Vista previa (imagen lista para enviar)</label>
+      <img src="{{ url_for('servir_imagen_procesada', nombre=producto.imagen_procesada) }}" style="max-width:280px; border-radius:8px; border:1px solid var(--borde);">
+    </div>
+    {% endif %}
+
+    <div style="margin-top:18px;">
+      <button class="btn btn-primario" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

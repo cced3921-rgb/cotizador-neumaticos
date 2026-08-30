@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Pipeline de ventas</h2>
+  <div style="display:flex; gap:10px;">
+    <a class="btn" href="{{ url_for('contactos') }}">☰ Ver como lista</a>
+    <a class="btn btn-primario" href="{{ url_for('contacto_nuevo') }}">+ Nuevo contacto</a>
+  </div>
+</div>
+
+<p style="color:var(--texto-suave); font-size:13px; margin-top:-8px;">
+  Arrastra una tarjeta a otra columna para actualizar el estado del cliente.
+</p>
+
+<div class="tablero-pipeline">
+  {% for estado in estados %}
+  <div class="columna-pipeline" data-estado="{{ estado }}">
+    <div class="columna-pipeline-titulo">
+      <span class="badge badge-{{ estado }}">{{ nombres_estados[estado] }}</span>
+      <span class="columna-pipeline-contador">{{ columnas[estado]|length }}</span>
+    </div>
+    <div class="columna-pipeline-valor" data-total="{{ columnas[estado]|sum(attribute='valor_cotizado') }}">
+      ${{ "%.2f"|format(columnas[estado]|sum(attribute='valor_cotizado')) }}
+    </div>
+    <div class="columna-pipeline-cuerpo" data-estado="{{ estado }}">
+      {% for c in columnas[estado] %}
+      <div class="tarjeta-pipeline" draggable="true" data-id="{{ c.id }}" data-valor="{{ c.valor_cotizado }}">
+        <a href="{{ url_for('contacto_detalle', contacto_id=c.id) }}" class="tarjeta-pipeline-nombre">{{ c.nombre }}</a>
+        <div class="tarjeta-pipeline-telefono">{{ c.telefono }}</div>
+        {% if c.num_cotizaciones %}
+        <div class="tarjeta-pipeline-valor">${{ "%.2f"|format(c.valor_cotizado) }} · {{ c.num_cotizaciones }} cotiz.</div>
+        {% endif %}
+        <div class="tarjeta-pipeline-acciones">
+          {% if c.ultimo_pdf %}
+          <div style="display:flex; gap:4px;">
+            <a href="{{ url_for('servir_pdf', nombre=c.ultimo_pdf) }}" target="_blank" class="btn btn-sm" style="flex:1;" title="Ver la ultima cotizacion en PDF">📄 Ultima cotizacion</a>
+            <button type="button" class="btn btn-sm btn-peligro btn-eliminar-cotizacion" data-cotizacion-id="{{ c.ultima_cotizacion_id }}" title="Eliminar esta cotizacion">🗑️</button>
+          </div>
+          {% endif %}
+          <a href="{{ c.wa_link }}" target="_blank" class="btn btn-sm" title="Escribir por WhatsApp">💬 WhatsApp</a>
+          <select class="selector-estado-tarjeta" data-id="{{ c.id }}">
+            {% for e in estados %}
+              <option value="{{ e }}" {{ 'selected' if e == estado else '' }}>{{ nombres_estados[e] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      {% else %}
+      <div class="columna-pipeline-vacia">Sin clientes</div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tarjetaArrastrada = null;
+
+document.querySelectorAll('.tarjeta-pipeline').forEach(tarjeta => {
+  tarjeta.addEventListener('dragstart', () => {
+    tarjetaArrastrada = tarjeta;
+    tarjeta.classList.add('arrastrando');
+  });
+  tarjeta.addEventListener('dragend', () => {
+    tarjeta.classList.remove('arrastrando');
+    tarjetaArrastrada = null;
+  });
+});
+
+document.querySelectorAll('.columna-pipeline-cuerpo').forEach(columna => {
+  columna.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    columna.classList.add('columna-resaltada');
+  });
+  columna.addEventListener('dragleave', () => {
+    columna.classList.remove('columna-resaltada');
+  });
+  columna.addEventListener('drop', (e) => {
+    e.preventDefault();
+    columna.classList.remove('columna-resaltada');
+    if (!tarjetaArrastrada) return;
+    moverTarjeta(tarjetaArrastrada, columna.dataset.estado);
+  });
+});
+
+// Selector de estado en cada tarjeta: alternativa a arrastrar, util en
+// touchpad o celular donde el drag and drop no siempre es comodo.
+document.querySelectorAll('.selector-estado-tarjeta').forEach(selector => {
+  selector.addEventListener('click', (e) => e.stopPropagation());
+  selector.addEventListener('change', () => {
+    const tarjeta = selector.closest('.tarjeta-pipeline');
+    moverTarjeta(tarjeta, selector.value);
+  });
+});
+
+async function moverTarjeta(tarjeta, nuevoEstado) {
+  const contactoId = tarjeta.dataset.id;
+  const columnaDestino = document.querySelector(`.columna-pipeline-cuerpo[data-estado="${nuevoEstado}"]`);
+  const columnaOrigen = tarjeta.closest('.columna-pipeline-cuerpo');
+  if (!columnaDestino || columnaOrigen === columnaDestino) return;
+
+  const vacio = columnaDestino.querySelector('.columna-pipeline-vacia');
+  if (vacio) vacio.remove();
+
+  const valor = parseFloat(tarjeta.dataset.valor || '0');
+  columnaDestino.appendChild(tarjeta);
+  actualizarContador(columnaOrigen);
+  actualizarContador(columnaDestino);
+  actualizarValor(columnaOrigen, -valor);
+  actualizarValor(columnaDestino, valor);
+  if (columnaOrigen.children.length === 0) {
+    columnaOrigen.innerHTML = '<div class="columna-pipeline-vacia">Sin clientes</div>';
+  }
+
+  const resp = await fetch(`/api/contactos/${contactoId}/estado`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ estado: nuevoEstado }),
+  });
+  if (!resp.ok) {
+    alert('No se pudo actualizar el estado. Recarga la pagina e intenta de nuevo.');
+    location.reload();
+  }
+}
+
+function actualizarContador(columnaCuerpo) {
+  const columna = columnaCuerpo.closest('.columna-pipeline');
+  const contador = columna.querySelector('.columna-pipeline-contador');
+  const tarjetas = columnaCuerpo.querySelectorAll('.tarjeta-pipeline').length;
+  contador.textContent = tarjetas;
+}
+
+function actualizarValor(columnaCuerpo, delta) {
+  const columna = columnaCuerpo.closest('.columna-pipeline');
+  const elementoValor = columna.querySelector('.columna-pipeline-valor');
+  const nuevoTotal = parseFloat(elementoValor.dataset.total || '0') + delta;
+  elementoValor.dataset.total = nuevoTotal;
+  elementoValor.textContent = '$' + nuevoTotal.toFixed(2);
+}
+
+document.querySelectorAll('.btn-eliminar-cotizacion').forEach(boton => {
+  boton.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm('¿Eliminar esta cotizacion? Tambien se borra el PDF. Esta accion no se puede deshacer.')) return;
+
+    const cotizacionId = boton.dataset.cotizacionId;
+    boton.disabled = true;
+    const resp = await fetch(`/api/cotizaciones/${cotizacionId}/eliminar`, { method: 'POST' });
+    if (resp.ok) {
+      location.reload();
+    } else {
+      const datos = await resp.json().catch(() => ({}));
+      alert(datos.error || 'No se pudo eliminar la cotizacion.');
+      boton.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

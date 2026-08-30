@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Nuevo contacto</h2>
+  <a class="btn" href="{{ url_for('contactos') }}">&larr; Volver</a>
+</div>
+<div class="panel" style="max-width: 480px;">
+  <form method="post">
+    <div class="form-grid una-col">
+      <div>
+        <label>Nombre</label>
+        <input type="text" name="nombre" required>
+      </div>
+      <div>
+        <label>Telefono (WhatsApp)</label>
+        <input type="tel" name="telefono" placeholder="0991234567" required>
+      </div>
+      <div>
+        <label>Origen (opcional)</label>
+        <input type="text" name="origen" placeholder="Facebook, referido, etc.">
+      </div>
+      <div>
+        <label>Notas (opcional)</label>
+        <textarea name="notas" rows="3"></textarea>
+      </div>
+    </div>
+    <div style="margin-top:16px;">
+      <button class="btn btn-primario" type="submit">Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

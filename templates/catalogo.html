@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Catalogo de neumaticos</h2>
+  {% if es_admin %}
+  <a class="btn btn-primario" href="{{ url_for('producto_nuevo') }}">+ Agregar neumatico</a>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <form method="get" class="filtros">
+    <input type="search" name="q" placeholder="Buscar por marca, modelo o medida..." value="{{ q }}">
+    <button class="btn" type="submit">Buscar</button>
+  </form>
+</div>
+
+{% if es_admin %}
+<div class="panel">
+  <details {{ 'open' if q == '' and productos|length == 0 else '' }}>
+    <summary style="cursor:pointer; font-weight:600; margin-bottom: 10px;">Importar catalogo desde Excel/CSV</summary>
+    <p style="color:var(--texto-suave); font-size: 13px;">
+      Columnas: <code>marca, modelo, medida, precio, stock, imagen</code>. La columna
+      <code>imagen</code> es opcional: debe ser el nombre de un archivo ya subido antes
+      a la carpeta de imagenes del producto (puedes subir imagenes editando cada
+      neumatico despues de importar).
+    </p>
+    <form method="post" action="{{ url_for('catalogo_importar') }}" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:center;">
+      <input type="file" name="archivo" accept=".xlsx,.csv" required>
+      <button class="btn btn-primario" type="submit">Importar</button>
+    </form>
+  </details>
+</div>
+{% endif %}
+
+<div class="panel">
+  {% if productos %}
+  <table>
+    <thead>
+      <tr>
+        <th></th>
+        <th>Marca / Modelo</th>
+        <th>Medida</th>
+        <th>Precio</th>
+        <th>Stock</th>
+        {% if es_admin %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in productos %}
+      <tr>
+        <td>
+          {% if p.imagen_procesada %}
+            <img class="miniatura" src="{{ url_for('servir_imagen_procesada', nombre=p.imagen_procesada) }}" alt="">
+          {% elif p.imagen_original %}
+            <img class="miniatura" src="{{ url_for('servir_imagen_original', nombre=p.imagen_original) }}" alt="">
+          {% else %}
+            <div class="miniatura" style="display:flex;align-items:center;justify-content:center;color:#aaa;font-size:10px;">sin foto</div>
+          {% endif %}
+        </td>
+        <td>{{ p.marca }} {{ p.modelo }}</td>
+        <td>{{ p.medida }}</td>
+        <td>${{ "%.2f"|format(p.precio) }}</td>
+        <td>{{ p.stock }}</td>
+        {% if es_admin %}
+        <td style="text-align:right; white-space:nowrap;">
+          <a class="btn btn-sm" href="{{ url_for('producto_editar', producto_id=p.id) }}">Editar</a>
+          <form method="post" action="{{ url_for('producto_eliminar', producto_id=p.id) }}" style="display:inline;" onsubmit="return confirm('¿Eliminar este neumatico del catalogo?');">
+            <button class="btn btn-sm btn-peligro" type="submit">Eliminar</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="vacio">Todavia no hay neumaticos en el catalogo.</div>
+  {% endif %}
+</div>
+{% endblock %}

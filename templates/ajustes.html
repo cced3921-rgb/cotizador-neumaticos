@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Ajustes del negocio</h2>
+</div>
+
+<div class="panel" style="max-width: 680px;">
+  <form method="post" enctype="multipart/form-data">
+    <h3 style="margin-top:0;">Datos del negocio</h3>
+    <div class="form-grid">
+      <div>
+        <label>Nombre del negocio</label>
+        <input type="text" name="nombre_negocio" value="{{ ajustes.nombre_negocio }}" required>
+      </div>
+      <div>
+        <label>Ciudad (aparece en la fecha y el pie del PDF)</label>
+        <input type="text" name="ciudad_negocio" value="{{ ajustes.ciudad_negocio }}" placeholder="Santo Domingo">
+      </div>
+      <div>
+        <label>Telefono del negocio</label>
+        <input type="text" name="telefono_negocio" value="{{ ajustes.telefono_negocio }}">
+      </div>
+      <div>
+        <label>Codigo de pais (WhatsApp)</label>
+        <input type="text" name="prefijo_telefono" value="{{ ajustes.prefijo_telefono }}" placeholder="593">
+      </div>
+      <div class="form-grid una-col" style="grid-column: 1 / -1;">
+        <div>
+          <label>Direccion (aparece al pie de cada PDF)</label>
+          <input type="text" name="direccion_negocio" value="{{ ajustes.direccion_negocio }}" placeholder="Av. Venezuela y Av. Rio Chila, CP: 170301">
+        </div>
+      </div>
+      <div>
+        <label>Validez de la cotizacion (dias)</label>
+        <input type="number" min="1" name="validez_dias" value="{{ ajustes.validez_dias }}">
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <label>Logo (aparece arriba a la izquierda del PDF)</label>
+      <input type="file" name="logo" accept=".jpg,.jpeg,.png,.webp">
+      {% if ajustes.logo_archivo %}
+        <img src="{{ url_for('servir_logo', nombre=ajustes.logo_archivo) }}" style="height:40px; margin-top:8px; display:block;">
+      {% endif %}
+    </div>
+
+    <h3 style="margin-top:28px;">Firma del vendedor</h3>
+    <div class="form-grid">
+      <div>
+        <label>Nombre de quien firma</label>
+        <input type="text" name="vendedor_nombre" value="{{ ajustes.vendedor_nombre }}" placeholder="George">
+      </div>
+      <div>
+        <label>Cargo</label>
+        <input type="text" name="vendedor_cargo" value="{{ ajustes.vendedor_cargo }}" placeholder="Ejecutivo de ventas">
+      </div>
+      <div>
+        <label>Telefono del vendedor (si es distinto al del negocio)</label>
+        <input type="text" name="vendedor_telefono" value="{{ ajustes.vendedor_telefono }}">
+      </div>
+    </div>
+
+    <h3 style="margin-top:28px;">Textos de la proforma (PDF)</h3>
+    <div style="margin-top:6px;">
+      <label>Parrafo de introduccion (despues del saludo)</label>
+      <textarea name="texto_intro" rows="2">{{ ajustes.texto_intro }}</textarea>
+    </div>
+    <div style="margin-top:14px;">
+      <label>Formas de pago (una por linea)</label>
+      <textarea name="formas_pago" rows="3">{{ ajustes.formas_pago }}</textarea>
+    </div>
+    <div style="margin-top:14px;">
+      <label>Condiciones (IVA, garantia, envio) — separa parrafos con una linea en blanco</label>
+      <textarea name="pie_mensaje" rows="4">{{ ajustes.pie_mensaje }}</textarea>
+    </div>
+
+    <h3 style="margin-top:28px;">Mensaje de WhatsApp</h3>
+    <div>
+      <label>Mensaje corto que abre el chat (el detalle va en el PDF adjunto)</label>
+      <textarea name="plantilla_mensaje" rows="3">{{ ajustes.plantilla_mensaje }}</textarea>
+      <p style="font-size:12px; color:var(--texto-suave); margin-top:4px;">
+        Variables disponibles: <code>{nombre}</code>, <code>{total}</code>
+      </p>
+    </div>
+
+    <div style="margin-top:18px;">
+      <button class="btn btn-primario" type="submit">Guardar ajustes</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
