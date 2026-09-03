@@ -2,10 +2,7 @@
 {% block contenido %}
 <div class="encabezado">
   <h2>Contactos (CRM)</h2>
-  <div style="display:flex; gap:10px;">
-    <a class="btn" href="{{ url_for('contactos_pipeline') }}">📊 Ver pipeline de ventas</a>
-    <a class="btn btn-primario" href="{{ url_for('contacto_nuevo') }}">+ Nuevo contacto</a>
-  </div>
+  <a class="btn btn-primario" href="{{ url_for('contacto_nuevo') }}">+ Nuevo contacto</a>
 </div>
 
 <div class="panel stats-grid">

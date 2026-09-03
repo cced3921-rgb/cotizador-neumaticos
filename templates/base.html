@@ -14,21 +14,28 @@
     </header>
     <div class="overlay-menu" id="overlay-menu"></div>
     <nav class="nav-lateral" id="nav-lateral">
+      {% if ajustes.logo_archivo %}
+      <div class="nav-lateral-marca">
+        <img class="nav-lateral-logo" src="{{ url_for('servir_logo', nombre=ajustes.logo_archivo) }}" alt="{{ ajustes.nombre_negocio }}">
+      </div>
+      {% else %}
       <h1>{{ ajustes.nombre_negocio }}</h1>
-      <a href="{{ url_for('cotizar') }}" class="{{ 'activo' if request.endpoint == 'cotizar' else '' }}">Cotizar</a>
-      <a href="{{ url_for('catalogo') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('catalogo') or request.endpoint in ['producto_nuevo','producto_editar'] else '' }}">Catalogo</a>
-      <a href="{{ url_for('contactos') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('contacto') else '' }}">Contactos (CRM)</a>
+      {% endif %}
+      <a href="{{ url_for('cotizar') }}" class="{{ 'activo' if request.endpoint == 'cotizar' else '' }}"><span class="nav-icono">🧾</span> Cotizar</a>
+      <a href="{{ url_for('catalogo') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('catalogo') or request.endpoint in ['producto_nuevo','producto_editar'] else '' }}"><span class="nav-icono">🛞</span> Catalogo</a>
+      <a href="{{ url_for('contactos') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('contacto') and request.endpoint != 'contactos_pipeline' else '' }}"><span class="nav-icono">👥</span> Contactos (CRM)</a>
+      <a href="{{ url_for('contactos_pipeline') }}" class="{{ 'activo' if request.endpoint == 'contactos_pipeline' else '' }}"><span class="nav-icono">📊</span> Pipeline</a>
       {% if es_admin %}
-      <a href="{{ url_for('usuarios') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('usuario_') or request.endpoint == 'usuarios' else '' }}">Usuarios</a>
-      <a href="{{ url_for('ajustes_vista') }}" class="{{ 'activo' if request.endpoint == 'ajustes_vista' else '' }}">Ajustes</a>
+      <a href="{{ url_for('usuarios') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('usuario_') or request.endpoint == 'usuarios' else '' }}"><span class="nav-icono">🔑</span> Usuarios</a>
+      <a href="{{ url_for('ajustes_vista') }}" class="{{ 'activo' if request.endpoint == 'ajustes_vista' else '' }}"><span class="nav-icono">⚙️</span> Ajustes</a>
       {% endif %}
 
       {% if usuario_actual %}
       <div style="margin-top:auto; padding-top:24px; border-top:1px solid rgba(255,255,255,0.12);">
         <a href="{{ url_for('mi_cuenta') }}" class="{{ 'activo' if request.endpoint == 'mi_cuenta' else '' }}" style="font-size:13px;">
-          👤 {{ usuario_actual.nombre }}
+          <span class="nav-icono">👤</span> {{ usuario_actual.nombre }}
         </a>
-        <a href="{{ url_for('logout') }}" style="font-size:13px;">🚪 Cerrar sesion</a>
+        <a href="{{ url_for('logout') }}" style="font-size:13px;"><span class="nav-icono">🚪</span> Cerrar sesion</a>
       </div>
       {% endif %}
     </nav>

@@ -2,10 +2,7 @@
 {% block contenido %}
 <div class="encabezado">
   <h2>Pipeline de ventas</h2>
-  <div style="display:flex; gap:10px;">
-    <a class="btn" href="{{ url_for('contactos') }}">☰ Ver como lista</a>
-    <a class="btn btn-primario" href="{{ url_for('contacto_nuevo') }}">+ Nuevo contacto</a>
-  </div>
+  <a class="btn btn-primario" href="{{ url_for('contacto_nuevo') }}">+ Nuevo contacto</a>
 </div>
 
 <p style="color:var(--texto-suave); font-size:13px; margin-top:-8px;">

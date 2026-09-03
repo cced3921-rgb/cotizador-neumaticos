@@ -35,7 +35,45 @@
 
     <div class="panel">
       <h3 style="margin-top:0;">2. Neumaticos</h3>
-      <input type="search" id="buscador-productos" placeholder="Buscar en el catalogo..." style="margin-bottom:10px;">
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <input type="search" id="buscador-productos" placeholder="Buscar en el catalogo..." style="flex:1; margin-bottom:0;">
+        <button type="button" class="btn btn-sm" id="btn-mostrar-producto-rapido">+ Producto nuevo</button>
+      </div>
+
+      <div class="panel-producto-rapido" id="panel-producto-rapido" hidden>
+        <p style="margin:0 0 10px; font-size:13px; color:var(--texto-suave);">
+          ¿El cliente pide algo que todavia no esta en el catalogo? Cargalo aqui — se guarda en el
+          catalogo y queda seleccionado en esta cotizacion al instante.
+        </p>
+        <div class="form-grid">
+          <div>
+            <label>Marca</label>
+            <input type="text" id="pr-marca" placeholder="Continental">
+          </div>
+          <div>
+            <label>Modelo</label>
+            <input type="text" id="pr-modelo" placeholder="PowerContact">
+          </div>
+          <div>
+            <label>Medida</label>
+            <input type="text" id="pr-medida" placeholder="195/65 R15">
+          </div>
+          <div>
+            <label>Precio (USD)</label>
+            <input type="number" id="pr-precio" step="0.01" min="0" placeholder="0.00">
+          </div>
+          <div>
+            <label>Stock</label>
+            <input type="number" id="pr-stock" min="0" value="1">
+          </div>
+        </div>
+        <div id="pr-error" style="color:var(--peligro); font-size:13px; margin-top:8px;"></div>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button type="button" class="btn btn-primario" id="btn-guardar-producto-rapido">Guardar y agregar a la cotizacion</button>
+          <button type="button" class="btn" id="btn-cancelar-producto-rapido">Cancelar</button>
+        </div>
+      </div>
+
       <div class="lista-productos" id="lista-productos">
         {% for p in productos %}
         <div class="fila-producto" data-buscar="{{ (p.marca ~ ' ' ~ p.modelo ~ ' ' ~ p.medida)|lower }}">
@@ -46,10 +84,13 @@
           {% endif %}
           <div class="info">
             <strong>{{ p.marca }} {{ p.modelo }}</strong>
-            <small>{{ p.medida }} · ${{ "%.2f"|format(p.precio) }} · stock {{ p.stock }}</small>
+            <small>{{ p.medida }} · precio catalogo ${{ "%.2f"|format(p.precio) }} · stock {{ p.stock }}</small>
           </div>
           <input type="checkbox" class="chk-producto" value="{{ p.id }}" data-precio="{{ p.precio }}">
-          <input type="number" class="cant-producto" value="1" min="1">
+          <label class="precio-producto-envoltorio" title="Precio de este neumatico en esta cotizacion (editable)">
+            $<input type="number" class="precio-producto" step="0.01" min="0" value="{{ '%.2f'|format(p.precio) }}" data-precio-original="{{ p.precio }}">
+          </label>
+          <input type="number" class="cant-producto" value="1" min="1" title="Cantidad">
         </div>
         {% endfor %}
         {% if not productos %}
@@ -145,12 +186,129 @@ document.getElementById('buscador-productos').addEventListener('input', (e) => {
   });
 });
 
+// --- agregar un producto nuevo al catalogo sin salir de Cotizar ---
+const listaProductos = document.getElementById('lista-productos');
+const panelProductoRapido = document.getElementById('panel-producto-rapido');
+const errorProductoRapido = document.getElementById('pr-error');
+const camposProductoRapido = {
+  marca: document.getElementById('pr-marca'),
+  modelo: document.getElementById('pr-modelo'),
+  medida: document.getElementById('pr-medida'),
+  precio: document.getElementById('pr-precio'),
+  stock: document.getElementById('pr-stock'),
+};
+
+function mostrarPanelProductoRapido() {
+  panelProductoRapido.hidden = false;
+  camposProductoRapido.marca.focus();
+}
+function ocultarPanelProductoRapido() {
+  panelProductoRapido.hidden = true;
+  errorProductoRapido.textContent = '';
+  Object.values(camposProductoRapido).forEach(campo => campo.value = '');
+  camposProductoRapido.stock.value = '1';
+}
+document.getElementById('btn-mostrar-producto-rapido').addEventListener('click', () => {
+  panelProductoRapido.hidden ? mostrarPanelProductoRapido() : ocultarPanelProductoRapido();
+});
+document.getElementById('btn-cancelar-producto-rapido').addEventListener('click', ocultarPanelProductoRapido);
+
+function crearFilaProducto(p) {
+  const fila = document.createElement('div');
+  fila.className = 'fila-producto fila-nueva';
+  fila.dataset.buscar = `${p.marca} ${p.modelo} ${p.medida}`.toLowerCase();
+  fila.innerHTML = `
+    <div style="width:48px;height:36px;border-radius:6px;background:#eee;flex-shrink:0;"></div>
+    <div class="info">
+      <strong></strong>
+      <small></small>
+    </div>
+    <input type="checkbox" class="chk-producto" value="${p.id}" data-precio="${p.precio}">
+    <label class="precio-producto-envoltorio" title="Precio de este neumatico en esta cotizacion (editable)">
+      $<input type="number" class="precio-producto" step="0.01" min="0" value="${p.precio.toFixed(2)}" data-precio-original="${p.precio}">
+    </label>
+    <input type="number" class="cant-producto" value="1" min="1" title="Cantidad">
+  `;
+  // texto por innerText (no innerHTML) para no arriesgar con caracteres raros en marca/modelo/medida
+  fila.querySelector('.info strong').textContent = `${p.marca} ${p.modelo}`;
+  fila.querySelector('.info small').textContent = `${p.medida} · precio catalogo $${p.precio.toFixed(2)} · stock ${p.stock}`;
+  return fila;
+}
+
+document.getElementById('btn-guardar-producto-rapido').addEventListener('click', async () => {
+  errorProductoRapido.textContent = '';
+  const cuerpo = {
+    marca: camposProductoRapido.marca.value.trim(),
+    modelo: camposProductoRapido.modelo.value.trim(),
+    medida: camposProductoRapido.medida.value.trim(),
+    precio: parseFloat(camposProductoRapido.precio.value || '0'),
+    stock: parseInt(camposProductoRapido.stock.value || '1', 10),
+  };
+  if (!cuerpo.marca || !cuerpo.modelo || !cuerpo.medida) {
+    errorProductoRapido.textContent = 'Marca, modelo y medida son obligatorios.';
+    return;
+  }
+  if (!cuerpo.precio || cuerpo.precio <= 0) {
+    errorProductoRapido.textContent = 'Ingresa un precio valido.';
+    return;
+  }
+
+  const boton = document.getElementById('btn-guardar-producto-rapido');
+  boton.disabled = true;
+  try {
+    const resp = await fetch('/api/catalogo/producto-rapido', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cuerpo),
+    });
+    const datos = await resp.json();
+    if (!resp.ok) {
+      errorProductoRapido.textContent = datos.error || 'No se pudo agregar el producto.';
+      return;
+    }
+
+    const fila = crearFilaProducto(datos.producto);
+    listaProductos.prepend(fila);
+    fila.querySelector('.chk-producto').checked = true;
+    fila.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    actualizarSubtotalEIva();
+    setTimeout(() => fila.classList.remove('fila-nueva'), 1800);
+
+    ocultarPanelProductoRapido();
+  } catch (err) {
+    errorProductoRapido.textContent = 'Error de conexion. Intenta de nuevo.';
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+// Precio a usar para una fila: el que este escrito en su campo (por
+// defecto el del catalogo, pero el vendedor lo puede editar a mano para
+// negociar con el cliente); si quedara vacio o invalido, cae de vuelta al
+// precio original del catalogo.
+function precioDeFila(fila, chk) {
+  const campoPrecio = fila.querySelector('.precio-producto');
+  const precio = parseFloat(campoPrecio.value);
+  if (!isNaN(precio) && precio > 0) return precio;
+  return parseFloat(chk.dataset.precio || '0');
+}
+
+function marcarPrecioEditado(campoPrecio) {
+  const original = parseFloat(campoPrecio.dataset.precioOriginal || '0');
+  const actual = parseFloat(campoPrecio.value || '0');
+  campoPrecio.closest('.precio-producto-envoltorio').classList.toggle(
+    'precio-editado', !isNaN(actual) && actual > 0 && actual.toFixed(2) !== original.toFixed(2)
+  );
+}
+document.querySelectorAll('.precio-producto').forEach(campo => marcarPrecioEditado(campo));
+
 function itemsSeleccionados() {
   const items = [];
   document.querySelectorAll('.chk-producto:checked').forEach(chk => {
     const fila = chk.closest('.fila-producto');
     const cantidad = parseInt(fila.querySelector('.cant-producto').value || '1', 10);
-    items.push({ producto_id: parseInt(chk.value, 10), cantidad });
+    const precio_unitario = precioDeFila(fila, chk);
+    items.push({ producto_id: parseInt(chk.value, 10), cantidad, precio_unitario });
   });
   return items;
 }
@@ -169,7 +327,7 @@ function totalCatalogoSeleccionado() {
   document.querySelectorAll('.chk-producto:checked').forEach(chk => {
     const fila = chk.closest('.fila-producto');
     const cantidad = parseInt(fila.querySelector('.cant-producto').value || '1', 10);
-    total += parseFloat(chk.dataset.precio || '0') * cantidad;
+    total += precioDeFila(fila, chk) * cantidad;
   });
   return total;
 }
@@ -190,12 +348,16 @@ function actualizarTotalFinal() {
 }
 
 document.getElementById('lista-productos').addEventListener('change', (e) => {
-  if (e.target.classList.contains('chk-producto') || e.target.classList.contains('cant-producto')) {
+  if (e.target.classList.contains('chk-producto') || e.target.classList.contains('cant-producto') || e.target.classList.contains('precio-producto')) {
     actualizarSubtotalEIva();
   }
 });
 document.getElementById('lista-productos').addEventListener('input', (e) => {
   if (e.target.classList.contains('cant-producto')) actualizarSubtotalEIva();
+  if (e.target.classList.contains('precio-producto')) {
+    marcarPrecioEditado(e.target);
+    actualizarSubtotalEIva();
+  }
 });
 
 campoIva.addEventListener('input', () => {

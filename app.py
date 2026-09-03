@@ -757,6 +757,59 @@ def cotizar():
     return render_template("cotizar.html", productos=productos, contactos=contactos_lista)
 
 
+@app.route("/api/catalogo/producto-rapido", methods=["POST"])
+def api_producto_rapido():
+    """Crea un neumatico en el catalogo al vuelo, desde la pantalla de
+    Cotizar, para cuando el cliente pide algo que todavia no esta cargado.
+    Disponible para cualquier usuario (no solo administradores): la idea es
+    no perder tiempo ni frenar la venta por tener que ir a Catalogo o pedirle
+    a un admin que lo cargue. Sin foto por ahora (se le puede agregar
+    despues desde Catalogo > Editar); lo importante es agilizar el mostrador."""
+    datos = request.get_json(force=True) or {}
+    marca = (datos.get("marca") or "").strip()
+    modelo = (datos.get("modelo") or "").strip()
+    medida = (datos.get("medida") or "").strip()
+
+    if not marca or not modelo or not medida:
+        return jsonify({"error": "Marca, modelo y medida son obligatorios."}), 400
+
+    try:
+        precio = round(float(datos.get("precio") or 0), 2)
+    except (TypeError, ValueError):
+        return jsonify({"error": "El precio no es valido."}), 400
+    if precio <= 0:
+        return jsonify({"error": "El precio debe ser mayor a 0."}), 400
+
+    try:
+        stock = max(0, int(datos.get("stock") or 1))
+    except (TypeError, ValueError):
+        stock = 1
+
+    conn = database.get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO productos (marca, modelo, medida, precio, stock, activo, creado_en) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            (marca, modelo, medida, precio, stock, database.ahora_iso()),
+        )
+        conn.commit()
+        producto_id = cursor.lastrowid
+    finally:
+        conn.close()
+
+    return jsonify({
+        "ok": True,
+        "producto": {
+            "id": producto_id,
+            "marca": marca,
+            "modelo": modelo,
+            "medida": medida,
+            "precio": precio,
+            "stock": stock,
+        },
+    })
+
+
 def _items_desde_json(conn, items_json):
     items = []
     for it in items_json:
@@ -764,13 +817,28 @@ def _items_desde_json(conn, items_json):
         if not producto:
             continue
         cantidad = max(1, int(it.get("cantidad") or 1))
+
+        # Precio del catalogo por defecto; si el vendedor lo edito a mano al
+        # armar la cotizacion (para negociar con el cliente), se respeta ese
+        # valor en vez del precio del catalogo. Cualquier valor invalido o
+        # en 0/negativo se ignora y cae de vuelta al precio del catalogo.
+        precio_unitario = producto["precio"]
+        precio_manual = it.get("precio_unitario")
+        if precio_manual not in (None, ""):
+            try:
+                precio_manual = round(float(precio_manual), 2)
+                if precio_manual > 0:
+                    precio_unitario = precio_manual
+            except (TypeError, ValueError):
+                pass
+
         items.append(
             {
                 "producto_id": producto["id"],
                 "marca": producto["marca"],
                 "modelo": producto["modelo"],
                 "medida": producto["medida"],
-                "precio_unitario": producto["precio"],
+                "precio_unitario": precio_unitario,
                 "cantidad": cantidad,
                 "imagen_procesada": producto["imagen_procesada"],
             }
