@@ -1082,7 +1082,12 @@ def usuario_editar(usuario_id):
 
 @app.route("/")
 def inicio():
-    return redirect(url_for("cotizar"))
+    # Si ya hay una sesion iniciada, no tiene caso mostrarle la bienvenida
+    # de nuevo: va directo a cotizar. Si no, se ve la pantalla animada con
+    # el logo y el boton "Iniciar" antes de pedir usuario/contraseña.
+    if g.get("usuario"):
+        return redirect(url_for("cotizar"))
+    return render_template("inicio.html")
 
 
 def _obtener_ip_local():

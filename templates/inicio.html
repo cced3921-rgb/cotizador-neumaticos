@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ ajustes.nombre_negocio }} - Cotizador</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <style>
+    body.pantalla-inicio {
+      background: radial-gradient(circle at 50% 20%, #1f2530 0%, var(--acento) 65%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .inicio-contenedor {
+      text-align: center;
+      padding: 24px;
+      opacity: 0;
+      transform: translateY(18px);
+      animation: inicio-aparecer 0.7s ease-out 0.1s forwards;
+    }
+
+    .inicio-halo {
+      position: relative;
+      display: inline-block;
+      padding: 36px 44px;
+    }
+    .inicio-halo::before {
+      content: "";
+      position: absolute;
+      inset: -10%;
+      background: radial-gradient(circle, rgba(18, 140, 74, 0.35) 0%, rgba(18, 140, 74, 0) 70%);
+      border-radius: 50%;
+      animation: inicio-pulso 3.2s ease-in-out infinite;
+      z-index: 0;
+    }
+
+    .inicio-logo {
+      position: relative;
+      z-index: 1;
+      max-width: min(480px, 78vw);
+      width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+      filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+    }
+
+    .inicio-nombre {
+      color: #fff;
+      font-size: 20px;
+      font-weight: 700;
+      margin: 4px 0 2px;
+    }
+
+    .inicio-tagline {
+      color: #9aa0ad;
+      font-size: 14px;
+      margin: 0 0 34px;
+      letter-spacing: 0.03em;
+    }
+
+    .btn-iniciar {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 40px;
+      border-radius: 999px;
+      border: none;
+      background: var(--primario);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-decoration: none;
+      text-transform: uppercase;
+      box-shadow: 0 10px 24px rgba(18, 140, 74, 0.35);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+      opacity: 0;
+      animation: inicio-aparecer 0.7s ease-out 0.4s forwards;
+    }
+    .btn-iniciar:hover {
+      background: var(--primario-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 14px 30px rgba(18, 140, 74, 0.45);
+    }
+    .btn-iniciar:active { transform: translateY(0); }
+    .btn-iniciar .flecha { transition: transform 0.15s ease; }
+    .btn-iniciar:hover .flecha { transform: translateX(4px); }
+
+    @keyframes inicio-aparecer {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes inicio-pulso {
+      0%, 100% { opacity: 0.55; transform: scale(0.94); }
+      50% { opacity: 1; transform: scale(1.04); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .inicio-contenedor, .btn-iniciar { animation: none; opacity: 1; transform: none; }
+      .inicio-halo::before { animation: none; }
+    }
+  </style>
+</head>
+<body class="pantalla-inicio">
+  <div class="inicio-contenedor">
+    <div class="inicio-halo">
+      {% if ajustes.logo_archivo %}
+        <img class="inicio-logo" src="{{ url_for('servir_logo', nombre=ajustes.logo_archivo) }}" alt="{{ ajustes.nombre_negocio }}">
+      {% else %}
+        <div class="inicio-nombre">{{ ajustes.nombre_negocio }}</div>
+      {% endif %}
+    </div>
+    <p class="inicio-tagline">Cotizador de neumaticos</p>
+    <a class="btn-iniciar" href="{{ url_for('login') }}">
+      Iniciar <span class="flecha">&rarr;</span>
+    </a>
+  </div>
+</body>
+</html>

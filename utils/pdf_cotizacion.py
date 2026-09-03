@@ -118,13 +118,23 @@ def generar_pdf_cotizacion(
     elementos = []
 
     # --- encabezado: logo a la izquierda, caja de numero de proforma a la derecha ---
+    # El logo ocupa el mayor tamaño posible dentro de su columna del encabezado
+    # (100mm de ancho x 26mm de alto) sin deformarse: se ajusta por el lado que
+    # primero llegue al limite, sea ancho o alto, segun la forma del logo.
+    ANCHO_MAX_LOGO = 100 * mm
+    ALTO_MAX_LOGO = 26 * mm
     celda_logo = ""
     if ruta_logo and Path(ruta_logo).exists():
         try:
             img = Image(str(ruta_logo))
             proporcion = img.imageHeight / img.imageWidth
-            img.drawWidth = 78 * mm
-            img.drawHeight = 78 * mm * proporcion
+            ancho = ANCHO_MAX_LOGO
+            alto = ancho * proporcion
+            if alto > ALTO_MAX_LOGO:
+                alto = ALTO_MAX_LOGO
+                ancho = alto / proporcion
+            img.drawWidth = ancho
+            img.drawHeight = alto
             celda_logo = img
         except Exception:
             celda_logo = Paragraph(f"<b>{ajustes.get('nombre_negocio', '')}</b>", estilo_negrita)

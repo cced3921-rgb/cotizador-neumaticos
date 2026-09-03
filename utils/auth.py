@@ -36,6 +36,7 @@ def es_admin() -> bool:
 
 
 RUTAS_PUBLICAS = {
+    "inicio",
     "login",
     "configurar_admin",
     "static",
