@@ -1,0 +1,13 @@
+{
+  "appId": "com.cotizadorneumaticos.app",
+  "appName": "Cotizador de Neumaticos",
+  "webDir": "www",
+  "server": {
+    "url": "https://cotizador-neumaticos-p1fw.onrender.com",
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

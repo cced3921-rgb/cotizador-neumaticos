@@ -8,7 +8,12 @@
 </head>
 <body>
   <div class="app-shell">
-    <nav class="nav-lateral">
+    <header class="topbar-movil">
+      <button type="button" class="btn-menu-movil" id="btn-menu-movil" aria-label="Abrir menu" aria-expanded="false" aria-controls="nav-lateral">☰</button>
+      <span class="topbar-movil-titulo">{{ ajustes.nombre_negocio }}</span>
+    </header>
+    <div class="overlay-menu" id="overlay-menu"></div>
+    <nav class="nav-lateral" id="nav-lateral">
       <h1>{{ ajustes.nombre_negocio }}</h1>
       <a href="{{ url_for('cotizar') }}" class="{{ 'activo' if request.endpoint == 'cotizar' else '' }}">Cotizar</a>
       <a href="{{ url_for('catalogo') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('catalogo') or request.endpoint in ['producto_nuevo','producto_editar'] else '' }}">Catalogo</a>
@@ -38,6 +43,30 @@
       {% block contenido %}{% endblock %}
     </main>
   </div>
+  <script>
+    (function () {
+      var boton = document.getElementById('btn-menu-movil');
+      var nav = document.getElementById('nav-lateral');
+      var overlay = document.getElementById('overlay-menu');
+      if (!boton || !nav || !overlay) return;
+
+      function cerrarMenu() {
+        nav.classList.remove('abierto');
+        overlay.classList.remove('visible');
+        boton.setAttribute('aria-expanded', 'false');
+      }
+      function alternarMenu() {
+        var abierto = nav.classList.toggle('abierto');
+        overlay.classList.toggle('visible', abierto);
+        boton.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+      }
+      boton.addEventListener('click', alternarMenu);
+      overlay.addEventListener('click', cerrarMenu);
+      nav.querySelectorAll('a').forEach(function (a) {
+        a.addEventListener('click', cerrarMenu);
+      });
+    })();
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

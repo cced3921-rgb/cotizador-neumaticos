@@ -1,0 +1,18 @@
+# Dependencias de Node (se reinstalan con "npm install")
+node_modules/
+
+# Build de Android (se regenera con "npx cap sync android" y gradlew)
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/captures/
+android/app/release/
+android/app/debug/
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Imagen fuente del icono (se regenera desde data/logo si hace falta)
+icon-source.png

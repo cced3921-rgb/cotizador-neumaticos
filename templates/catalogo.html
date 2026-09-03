@@ -34,6 +34,7 @@
 
 <div class="panel">
   {% if productos %}
+  <div class="tabla-scroll">
   <table>
     <thead>
       <tr>
@@ -73,6 +74,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <div class="vacio">Todavia no hay neumaticos en el catalogo.</div>
   {% endif %}

@@ -7,6 +7,7 @@
 
 <div class="panel">
   {% if usuarios %}
+  <div class="tabla-scroll">
   <table>
     <thead>
       <tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Estado</th><th></th></tr>
@@ -25,6 +26,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <div class="vacio">No hay usuarios.</div>
   {% endif %}

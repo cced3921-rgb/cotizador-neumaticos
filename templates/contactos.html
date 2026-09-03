@@ -8,7 +8,7 @@
   </div>
 </div>
 
-<div class="panel" style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 16px; text-align:center;">
+<div class="panel stats-grid">
   <div>
     <div style="font-size:24px; font-weight:700;">{{ resumen.total_contactos }}</div>
     <div style="font-size:12px; color:var(--texto-suave);">Clientes guardados</div>
@@ -57,6 +57,7 @@
 
 <div class="panel">
   {% if contactos %}
+  <div class="tabla-scroll">
   <table>
     <thead>
       <tr><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Ultimo contacto</th><th></th></tr>
@@ -73,6 +74,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   <div id="aviso-sin-resultados" class="vacio" style="display:none;">Ningun contacto coincide con la busqueda.</div>
   {% else %}
   <div class="vacio">No hay contactos todavia. Se crean automaticamente al enviar una cotizacion, o puedes agregarlos a mano.</div>
