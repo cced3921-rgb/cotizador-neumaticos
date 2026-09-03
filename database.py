@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS ajustes (
     clave TEXT PRIMARY KEY,
     valor TEXT
 );
+
+CREATE TABLE IF NOT EXISTS actividad (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id INTEGER,
+    usuario_nombre TEXT NOT NULL,
+    accion TEXT NOT NULL,
+    descripcion TEXT NOT NULL,
+    fecha TEXT NOT NULL,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
 """
 
 AJUSTES_POR_DEFECTO = {

@@ -125,7 +125,7 @@ def configurar_admin():
     session["usuario_id"] = admin_id
     session.permanent = True
     flash(f"Cuenta de administrador '{usuario_input}' creada.", "ok")
-    return redirect(url_for("cotizar"))
+    return redirect(url_for("dashboard"))
 
 
 @app.before_request
@@ -142,7 +142,7 @@ def _autenticacion():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if g.get("usuario"):
-        return redirect(url_for("cotizar"))
+        return redirect(url_for("dashboard"))
     if request.method == "GET":
         return render_template("login.html")
 
@@ -163,7 +163,22 @@ def login():
     session.clear()
     session["usuario_id"] = fila["id"]
     session.permanent = True
-    siguiente = request.args.get("siguiente") or url_for("cotizar")
+
+    # g.usuario todavia no existe en este request (recien se acaba de loguear),
+    # asi que se registra directo con los datos de "fila" en vez de usar el
+    # helper registrar_actividad (que toma el usuario de g).
+    conn = database.get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO actividad (usuario_id, usuario_nombre, accion, descripcion, fecha) "
+            "VALUES (?, ?, 'login', ?, ?)",
+            (fila["id"], fila["nombre"], f"{fila['nombre']} inicio sesion", database.ahora_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    siguiente = request.args.get("siguiente") or url_for("dashboard")
     return redirect(siguiente)
 
 
@@ -321,10 +336,11 @@ def producto_nuevo():
             "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
             (marca, modelo, medida, precio, stock, imagen_original, descripcion, database.ahora_iso()),
         )
-        conn.commit()
         producto_id = cursor.lastrowid
         if imagen_original:
             regenerar_imagen_producto(conn, producto_id)
+        registrar_actividad(conn, "producto", f"Agrego el neumatico {marca} {modelo} al catalogo")
+        conn.commit()
     finally:
         conn.close()
 
@@ -364,9 +380,10 @@ def producto_editar(producto_id):
             "imagen_original=?, descripcion=? WHERE id=?",
             (marca, modelo, medida, precio, stock, imagen_original, descripcion, producto_id),
         )
-        conn.commit()
         if imagen_original:
             regenerar_imagen_producto(conn, producto_id)
+        registrar_actividad(conn, "producto", f"Edito el neumatico {marca} {modelo}")
+        conn.commit()
     finally:
         conn.close()
 
@@ -379,7 +396,10 @@ def producto_editar(producto_id):
 def producto_eliminar(producto_id):
     conn = database.get_connection()
     try:
+        producto = conn.execute("SELECT marca, modelo FROM productos WHERE id = ?", (producto_id,)).fetchone()
         conn.execute("UPDATE productos SET activo = 0 WHERE id = ?", (producto_id,))
+        if producto:
+            registrar_actividad(conn, "producto", f"Elimino el neumatico {producto['marca']} {producto['modelo']}")
         conn.commit()
     finally:
         conn.close()
@@ -415,6 +435,9 @@ def catalogo_importar():
             if imagen_original:
                 regenerar_imagen_producto(conn, cursor.lastrowid)
             insertados += 1
+        if insertados:
+            registrar_actividad(conn, "producto", f"Importo {insertados} neumaticos al catalogo desde Excel/CSV")
+            conn.commit()
     finally:
         conn.close()
 
@@ -455,6 +478,27 @@ def _vendedor_actual_id():
     return None if auth.es_admin() else g.usuario["id"]
 
 
+def registrar_actividad(conn, accion: str, descripcion: str):
+    """Deja una linea en la bitacora de actividad (visible solo para
+    administradores en /actividad): quien hizo que y cuando. El nombre del
+    usuario se guarda tal cual esta en ese momento (si despues se le cambia
+    el nombre o se elimina la cuenta, el historial queda igual de legible).
+    'accion' es una categoria corta (cotizacion, contacto, producto, usuario,
+    login, ajustes) para poder filtrar y ponerle un icono en la bitacora."""
+    usuario = g.get("usuario")
+    conn.execute(
+        "INSERT INTO actividad (usuario_id, usuario_nombre, accion, descripcion, fecha) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (
+            usuario["id"] if usuario else None,
+            usuario["nombre"] if usuario else "Sistema",
+            accion,
+            descripcion,
+            database.ahora_iso(),
+        ),
+    )
+
+
 def obtener_resumen_crm(conn, vendedor_id=None):
     """Totales de todo lo que la app va guardando: clientes, cotizaciones
     enviadas, valor cotizado y neumaticos activos en el catalogo. Si se pasa
@@ -483,6 +527,60 @@ def obtener_resumen_crm(conn, vendedor_id=None):
         "valor_cotizado": valor_cotizado,
         "total_productos": conn.execute("SELECT COUNT(*) FROM productos WHERE activo = 1").fetchone()[0],
     }
+
+
+@app.route("/dashboard")
+def dashboard():
+    """Pantalla principal al entrar al sistema: un vistazo rapido del
+    negocio y, sobre todo, los leads a los que ya se les escribio HOY para
+    no perder el hilo y poder retomar el seguimiento con un clic."""
+    vendedor_id = _vendedor_actual_id()
+    hoy = database.ahora_iso()[:10]  # 'YYYY-MM-DD'
+    conn = database.get_connection()
+    try:
+        resumen = obtener_resumen_crm(conn, vendedor_id)
+
+        sql = (
+            "SELECT c.*, "
+            "(SELECT COUNT(*) FROM cotizaciones WHERE contacto_id = c.id AND fecha LIKE ?) AS cotizaciones_hoy, "
+            "COALESCE((SELECT SUM(total) FROM cotizaciones WHERE contacto_id = c.id AND fecha LIKE ?), 0) AS valor_hoy, "
+            "(SELECT tipo FROM cotizaciones WHERE contacto_id = c.id AND fecha LIKE ? "
+            " ORDER BY fecha DESC LIMIT 1) AS ultimo_tipo_hoy, "
+            "(SELECT fecha FROM cotizaciones WHERE contacto_id = c.id AND fecha LIKE ? "
+            " ORDER BY fecha DESC LIMIT 1) AS ultimo_contacto_hoy, "
+            "(SELECT pdf_archivo FROM cotizaciones WHERE contacto_id = c.id AND fecha LIKE ? "
+            " ORDER BY fecha DESC LIMIT 1) AS ultimo_pdf_hoy "
+            "FROM contactos c "
+            "WHERE EXISTS (SELECT 1 FROM cotizaciones WHERE contacto_id = c.id AND fecha LIKE ?) "
+        )
+        params = [f"{hoy}%"] * 6
+        if vendedor_id:
+            sql += "AND c.vendedor_id = ? "
+            params.append(vendedor_id)
+        sql += "ORDER BY ultimo_contacto_hoy DESC"
+        filas = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+
+    ajustes = obtener_ajustes()
+    leads_hoy = []
+    for fila in filas:
+        lead = dict(fila)
+        lead["wa_link"] = whatsapp.construir_link_wa(fila["telefono"], "", ajustes["prefijo_telefono"])
+        lead["hora"] = (lead["ultimo_contacto_hoy"] or "")[11:16]
+        leads_hoy.append(lead)
+
+    resumen["leads_hoy"] = len(leads_hoy)
+    resumen["cotizaciones_hoy"] = sum(l["cotizaciones_hoy"] for l in leads_hoy)
+    resumen["valor_hoy"] = sum(l["valor_hoy"] for l in leads_hoy)
+
+    return render_template(
+        "dashboard.html",
+        resumen=resumen,
+        leads_hoy=leads_hoy,
+        estados=ESTADOS_VALIDOS,
+        nombres_estados=NOMBRES_ESTADOS,
+    )
 
 
 @app.route("/contactos")
@@ -570,6 +668,11 @@ def api_contacto_actualizar_estado(contacto_id):
         if not auth.es_admin() and fila["vendedor_id"] != g.usuario["id"]:
             return jsonify({"error": "Ese contacto no es tuyo."}), 403
         conn.execute("UPDATE contactos SET estado = ? WHERE id = ?", (estado, contacto_id))
+        if estado != fila["estado"]:
+            registrar_actividad(
+                conn, "contacto",
+                f"Cambio el estado de {fila['nombre']} a {NOMBRES_ESTADOS.get(estado, estado)}",
+            )
         conn.commit()
     finally:
         conn.close()
@@ -583,7 +686,7 @@ def api_cotizacion_eliminar(cotizacion_id):
     conn = database.get_connection()
     try:
         fila = conn.execute(
-            "SELECT co.*, ct.vendedor_id AS contacto_vendedor_id "
+            "SELECT co.*, ct.vendedor_id AS contacto_vendedor_id, ct.nombre AS contacto_nombre "
             "FROM cotizaciones co JOIN contactos ct ON ct.id = co.contacto_id "
             "WHERE co.id = ?",
             (cotizacion_id,),
@@ -595,6 +698,10 @@ def api_cotizacion_eliminar(cotizacion_id):
 
         conn.execute("DELETE FROM cotizacion_items WHERE cotizacion_id = ?", (cotizacion_id,))
         conn.execute("DELETE FROM cotizaciones WHERE id = ?", (cotizacion_id,))
+        registrar_actividad(
+            conn, "cotizacion",
+            f"Elimino una cotizacion de {fila['contacto_nombre']} por ${fila['total']:,.2f}",
+        )
         conn.commit()
 
         if fila["pdf_archivo"]:
@@ -624,8 +731,9 @@ def contacto_nuevo():
             "VALUES (?, ?, ?, 'nuevo', ?, ?, ?)",
             (nombre, telefono, origen, notas, database.ahora_iso(), g.usuario["id"]),
         )
-        conn.commit()
         contacto_id = cursor.lastrowid
+        registrar_actividad(conn, "contacto", f"Creo el contacto {nombre}")
+        conn.commit()
     finally:
         conn.close()
     flash("Contacto agregado.", "ok")
@@ -668,6 +776,8 @@ def contactos_importar():
                 (c["nombre"], c["telefono"], c["origen"] or "importado", c["notas"], database.ahora_iso(), vendedor_id),
             )
             insertados += 1
+        if insertados:
+            registrar_actividad(conn, "contacto", f"Importo {insertados} contactos desde Excel/CSV")
         conn.commit()
     finally:
         conn.close()
@@ -729,6 +839,7 @@ def contacto_actualizar(contacto_id):
             "UPDATE contactos SET estado = ?, notas = ? WHERE id = ?",
             (estado, notas, contacto_id),
         )
+        registrar_actividad(conn, "contacto", f"Actualizo el contacto {contacto['nombre']}")
         conn.commit()
     finally:
         conn.close()
@@ -792,8 +903,9 @@ def api_producto_rapido():
             "VALUES (?, ?, ?, ?, ?, 1, ?)",
             (marca, modelo, medida, precio, stock, database.ahora_iso()),
         )
-        conn.commit()
         producto_id = cursor.lastrowid
+        registrar_actividad(conn, "producto", f"Agrego rapido el neumatico {marca} {modelo} desde Cotizar")
+        conn.commit()
     finally:
         conn.close()
 
@@ -944,6 +1056,12 @@ def api_cotizar_generar():
             "UPDATE contactos SET ultimo_contacto = ?, estado = ? WHERE id = ?",
             (fecha, nuevo_estado, contacto_id),
         )
+
+        etiqueta_tipo = "proforma" if tipo == "proforma" else "cotizacion"
+        registrar_actividad(
+            conn, "cotizacion",
+            f"Genero una {etiqueta_tipo} para {contacto['nombre']} por ${totales['total']:,.2f}",
+        )
         conn.commit()
 
         link_wa = whatsapp.construir_link_wa(contacto["telefono"], mensaje, ajustes["prefijo_telefono"])
@@ -1033,6 +1151,8 @@ def ajustes_vista():
             ids = [f["id"] for f in conn.execute("SELECT id FROM productos WHERE activo = 1").fetchall()]
             for producto_id in ids:
                 regenerar_imagen_producto(conn, producto_id)
+            registrar_actividad(conn, "ajustes", "Actualizo los ajustes del negocio")
+            conn.commit()
         finally:
             conn.close()
 
@@ -1052,6 +1172,29 @@ def usuarios():
     finally:
         conn.close()
     return render_template("usuarios.html", usuarios=lista)
+
+
+@app.route("/actividad")
+@auth.requiere_admin
+def actividad():
+    """Bitacora de lo que hace cada usuario (solo para administradores):
+    cotizaciones generadas/eliminadas, contactos, catalogo, ajustes, logins."""
+    usuario_id = request.args.get("usuario_id", type=int)
+    conn = database.get_connection()
+    try:
+        sql = "SELECT * FROM actividad WHERE 1=1"
+        params = []
+        if usuario_id:
+            sql += " AND usuario_id = ?"
+            params.append(usuario_id)
+        sql += " ORDER BY fecha DESC LIMIT 300"
+        registros = conn.execute(sql, params).fetchall()
+        usuarios_lista = conn.execute("SELECT id, nombre FROM usuarios ORDER BY nombre").fetchall()
+    finally:
+        conn.close()
+    return render_template(
+        "actividad.html", registros=registros, usuarios=usuarios_lista, usuario_id=usuario_id
+    )
 
 
 @app.route("/usuarios/nuevo", methods=["GET", "POST"])
@@ -1085,6 +1228,7 @@ def usuario_nuevo():
             "VALUES (?, ?, ?, ?, 1, ?)",
             (usuario_input, generate_password_hash(password_input), nombre, rol, database.ahora_iso()),
         )
+        registrar_actividad(conn, "usuario", f"Creo el usuario {nombre} ({usuario_input}, {rol})")
         conn.commit()
     finally:
         conn.close()
@@ -1135,11 +1279,13 @@ def usuario_editar(usuario_id):
                 "UPDATE usuarios SET nombre=?, rol=?, activo=?, password_hash=? WHERE id=?",
                 (nombre, rol, activo, generate_password_hash(password_nueva), usuario_id),
             )
+            registrar_actividad(conn, "usuario", f"Edito el usuario {nombre} y le cambio la contraseña")
         else:
             conn.execute(
                 "UPDATE usuarios SET nombre=?, rol=?, activo=? WHERE id=?",
                 (nombre, rol, activo, usuario_id),
             )
+            registrar_actividad(conn, "usuario", f"Edito el usuario {nombre}")
         conn.commit()
     finally:
         conn.close()
@@ -1154,7 +1300,7 @@ def inicio():
     # de nuevo: va directo a cotizar. Si no, se ve la pantalla animada con
     # el logo y el boton "Iniciar" antes de pedir usuario/contraseña.
     if g.get("usuario"):
-        return redirect(url_for("cotizar"))
+        return redirect(url_for("dashboard"))
     return render_template("inicio.html")
 
 

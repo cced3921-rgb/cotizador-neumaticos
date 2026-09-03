@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Inicio</h2>
+</div>
+
+<div class="panel stats-grid">
+  <div>
+    <div style="font-size:24px; font-weight:700; color: var(--rojo-marca);">{{ resumen.leads_hoy }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Leads contactados hoy</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700;">{{ resumen.cotizaciones_hoy }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Cotizaciones enviadas hoy</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700; color: var(--primario);">${{ "%.2f"|format(resumen.valor_hoy) }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Valor cotizado hoy</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700;">{{ resumen.total_contactos }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Clientes guardados</div>
+  </div>
+</div>
+
+<div class="encabezado" style="margin-top:4px;">
+  <h3 style="margin:0; font-size:16px;">Leads de hoy — retomar seguimiento</h3>
+</div>
+
+<div class="panel">
+  {% if leads_hoy %}
+  <div class="tabla-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Cliente</th>
+        <th>Telefono</th>
+        <th>Hora</th>
+        <th>Envios hoy</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in leads_hoy %}
+      <tr data-contacto-id="{{ l.id }}">
+        <td>{{ l.nombre }}</td>
+        <td>{{ l.telefono }}</td>
+        <td>{{ l.hora }}</td>
+        <td>{{ l.cotizaciones_hoy }} · ${{ "%.2f"|format(l.valor_hoy) }}</td>
+        <td>
+          <select class="selector-estado-tarjeta selector-estado-dashboard badge-{{ l.estado }}" data-id="{{ l.id }}" title="Cambiar estado del lead">
+            {% for e in estados %}
+              <option value="{{ e }}" {{ 'selected' if e == l.estado else '' }}>{{ nombres_estados[e] }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td style="text-align:right; white-space:nowrap;">
+          <a class="btn btn-sm" href="{{ url_for('contacto_detalle', contacto_id=l.id) }}">Ver / editar</a>
+          <a class="btn btn-sm" href="{{ l.wa_link }}" target="_blank" title="Retomar por WhatsApp">💬 Seguimiento</a>
+          <a class="btn btn-sm" href="{{ url_for('cotizar') }}?contacto_id={{ l.id }}" title="Otra cotizacion para este cliente">🧾</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vacio">
+    Todavia no le has enviado ningun mensaje a nadie hoy.<br>
+    En cuanto generes una cotizacion desde <a href="{{ url_for('cotizar') }}">Cotizar</a>, el contacto va a aparecer aqui para que puedas retomarlo.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.selector-estado-dashboard').forEach(selector => {
+  const estadoAnterior = selector.value;
+  selector.dataset.estadoAnterior = estadoAnterior;
+
+  selector.addEventListener('change', async () => {
+    const contactoId = selector.dataset.id;
+    const nuevoEstado = selector.value;
+    selector.disabled = true;
+
+    const resp = await fetch(`/api/contactos/${contactoId}/estado`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estado: nuevoEstado }),
+    });
+
+    if (resp.ok) {
+      selector.classList.remove(`badge-${selector.dataset.estadoAnterior}`);
+      selector.classList.add(`badge-${nuevoEstado}`);
+      selector.dataset.estadoAnterior = nuevoEstado;
+    } else {
+      alert('No se pudo actualizar el estado. Intenta de nuevo.');
+      selector.value = selector.dataset.estadoAnterior;
+    }
+    selector.disabled = false;
+  });
+});
+</script>
+{% endblock %}

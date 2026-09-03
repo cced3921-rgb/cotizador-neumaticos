@@ -14,19 +14,21 @@
     </header>
     <div class="overlay-menu" id="overlay-menu"></div>
     <nav class="nav-lateral" id="nav-lateral">
-      {% if ajustes.logo_archivo %}
-      <div class="nav-lateral-marca">
+      <a class="nav-lateral-marca" href="{{ url_for('dashboard') }}" title="Ir a Inicio">
+        {% if ajustes.logo_archivo %}
         <img class="nav-lateral-logo" src="{{ url_for('servir_logo', nombre=ajustes.logo_archivo) }}" alt="{{ ajustes.nombre_negocio }}">
-      </div>
-      {% else %}
-      <h1>{{ ajustes.nombre_negocio }}</h1>
-      {% endif %}
+        {% else %}
+        <h1>{{ ajustes.nombre_negocio }}</h1>
+        {% endif %}
+      </a>
+      <a href="{{ url_for('dashboard') }}" class="{{ 'activo' if request.endpoint == 'dashboard' else '' }}"><span class="nav-icono">🏠</span> Inicio</a>
       <a href="{{ url_for('cotizar') }}" class="{{ 'activo' if request.endpoint == 'cotizar' else '' }}"><span class="nav-icono">🧾</span> Cotizar</a>
       <a href="{{ url_for('catalogo') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('catalogo') or request.endpoint in ['producto_nuevo','producto_editar'] else '' }}"><span class="nav-icono">🛞</span> Catalogo</a>
       <a href="{{ url_for('contactos') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('contacto') and request.endpoint != 'contactos_pipeline' else '' }}"><span class="nav-icono">👥</span> Contactos (CRM)</a>
       <a href="{{ url_for('contactos_pipeline') }}" class="{{ 'activo' if request.endpoint == 'contactos_pipeline' else '' }}"><span class="nav-icono">📊</span> Pipeline</a>
       {% if es_admin %}
       <a href="{{ url_for('usuarios') }}" class="{{ 'activo' if request.endpoint and request.endpoint.startswith('usuario_') or request.endpoint == 'usuarios' else '' }}"><span class="nav-icono">🔑</span> Usuarios</a>
+      <a href="{{ url_for('actividad') }}" class="{{ 'activo' if request.endpoint == 'actividad' else '' }}"><span class="nav-icono">📋</span> Actividad</a>
       <a href="{{ url_for('ajustes_vista') }}" class="{{ 'activo' if request.endpoint == 'ajustes_vista' else '' }}"><span class="nav-icono">⚙️</span> Ajustes</a>
       {% endif %}
 

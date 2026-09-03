@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Actividad</h2>
+</div>
+
+<div class="panel">
+  <form method="get" class="filtros">
+    <select name="usuario_id" onchange="this.form.submit()">
+      <option value="">Todos los usuarios</option>
+      {% for u in usuarios %}
+        <option value="{{ u.id }}" {{ 'selected' if usuario_id == u.id else '' }}>{{ u.nombre }}</option>
+      {% endfor %}
+    </select>
+    {% if usuario_id %}
+    <a class="btn btn-sm" href="{{ url_for('actividad') }}">Quitar filtro</a>
+    {% endif %}
+  </form>
+</div>
+
+<div class="panel">
+  {% if registros %}
+  <div class="tabla-scroll">
+  <table>
+    <thead>
+      <tr><th>Fecha</th><th>Usuario</th><th>Actividad</th></tr>
+    </thead>
+    <tbody>
+      {% for r in registros %}
+      <tr>
+        <td style="white-space:nowrap; color:var(--texto-suave); font-size:13px;">{{ r.fecha }}</td>
+        <td style="white-space:nowrap;"><strong>{{ r.usuario_nombre }}</strong></td>
+        <td>
+          {% set iconos = {'cotizacion': '🧾', 'contacto': '👥', 'producto': '🛞', 'usuario': '🔑', 'login': '🔓', 'ajustes': '⚙️'} %}
+          {{ iconos.get(r.accion, '•') }} {{ r.descripcion }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p style="font-size:12px; color:var(--texto-suave); margin-top:10px; margin-bottom:0;">
+    Se muestran los ultimos {{ registros|length }} registros{{ ' de este usuario' if usuario_id else '' }}.
+  </p>
+  {% else %}
+  <div class="vacio">Todavia no hay actividad registrada{{ ' para este usuario' if usuario_id else '' }}.</div>
+  {% endif %}
+</div>
+{% endblock %}
