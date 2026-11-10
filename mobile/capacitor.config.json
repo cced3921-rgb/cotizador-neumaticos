@@ -3,7 +3,7 @@
   "appName": "Cotizador de Neumaticos",
   "webDir": "www",
   "server": {
-    "url": "https://cotizador-neumaticos-p1fw.onrender.com",
+    "url": "https://185-174-252-200.nip.io",
     "androidScheme": "https",
     "cleartext": false
   },

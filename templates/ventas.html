@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Ventas</h2>
+  <a class="btn btn-primario" href="{{ url_for('venta_manual') }}">+ Registrar venta manual</a>
+</div>
+
+<div class="panel">
+  <form method="get" class="filtros">
+    <input type="search" name="q" placeholder="Buscar por cliente o telefono..." value="{{ q }}">
+    <select name="tipo">
+      <option value="">Cotizacion y proforma</option>
+      <option value="proforma" {{ 'selected' if tipo == 'proforma' else '' }}>Solo proformas</option>
+      <option value="cotizacion" {{ 'selected' if tipo == 'cotizacion' else '' }}>Solo cotizaciones</option>
+    </select>
+    <button class="btn" type="submit">Filtrar</button>
+  </form>
+  <div class="filtros-rango" style="margin-top:10px;">
+    <a class="btn btn-sm {{ 'btn-primario' if rango == '7' else '' }}" href="?rango=7&q={{ q }}&tipo={{ tipo }}">7 dias</a>
+    <a class="btn btn-sm {{ 'btn-primario' if rango == '30' else '' }}" href="?rango=30&q={{ q }}&tipo={{ tipo }}">30 dias</a>
+    <a class="btn btn-sm {{ 'btn-primario' if rango == '90' else '' }}" href="?rango=90&q={{ q }}&tipo={{ tipo }}">90 dias</a>
+    <a class="btn btn-sm {{ 'btn-primario' if rango == 'todo' else '' }}" href="?rango=todo&q={{ q }}&tipo={{ tipo }}">Todo</a>
+  </div>
+</div>
+
+<div class="panel stats-grid" style="grid-template-columns: repeat(2, 1fr); max-width:420px;">
+  <div>
+    <div style="font-size:24px; font-weight:700;">{{ pedidos|length }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Pedidos en este filtro</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700; color: var(--primario);">${{ "%.2f"|format(total_valor) }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Valor total (proformas)</div>
+  </div>
+</div>
+
+<div class="panel">
+  {% if pedidos %}
+  <div class="tabla-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Folio</th>
+        <th>Fecha</th>
+        <th>Cliente</th>
+        {% if es_admin %}<th>Vendedor</th>{% endif %}
+        <th>Tipo</th>
+        <th>Total</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in pedidos %}
+      <tr>
+        <td>{{ 'PRO' if p.tipo == 'proforma' else 'COT' }}-{{ "%05d"|format(p.id) }}</td>
+        <td>{{ p.fecha[:16] }}</td>
+        <td><a href="{{ url_for('contacto_detalle', contacto_id=p.contacto_id) }}">{{ p.cliente_nombre }}</a><br><small style="color:var(--texto-suave);">{{ p.cliente_telefono }}</small></td>
+        {% if es_admin %}<td>{{ p.vendedor_nombre or '—' }}</td>{% endif %}
+        <td><span class="badge {{ 'badge-vendido' if p.tipo == 'proforma' else 'badge-nuevo' }}">{{ 'Proforma' if p.tipo == 'proforma' else 'Cotizacion' }}</span></td>
+        <td>{{ "${:.2f}".format(p.total) if p.tipo == 'proforma' else '—' }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          {% if p.pdf_archivo %}
+          <a class="btn btn-sm" href="{{ url_for('servir_pdf', nombre=p.pdf_archivo) }}" target="_blank">📄 Ver PDF</a>
+          {% endif %}
+          <button type="button" class="btn btn-sm btn-peligro btn-eliminar-pedido" data-cotizacion-id="{{ p.id }}">🗑️</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vacio">No hay pedidos en este filtro todavia.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.btn-eliminar-pedido').forEach(boton => {
+  boton.addEventListener('click', async () => {
+    if (!confirm('¿Eliminar este pedido? Tambien se borra el PDF. Esta accion no se puede deshacer.')) return;
+
+    const cotizacionId = boton.dataset.cotizacionId;
+    boton.disabled = true;
+    const resp = await fetch(`/api/cotizaciones/${cotizacionId}/eliminar`, { method: 'POST' });
+    if (resp.ok) {
+      location.reload();
+    } else {
+      const datos = await resp.json().catch(() => ({}));
+      alert(datos.error || 'No se pudo eliminar el pedido.');
+      boton.disabled = false;
+    }
+  });
+});
+</script>
+{% endblock %}

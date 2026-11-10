@@ -93,6 +93,32 @@ CREATE TABLE IF NOT EXISTS actividad (
     fecha TEXT NOT NULL,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
+
+-- Base lista para el modulo Inbox (conexion futura de WhatsApp Business y
+-- Facebook Messenger): hoy no se escribe nada aqui todavia, solo existen
+-- para que la integracion real, cuando se conecte, tenga donde guardar.
+CREATE TABLE IF NOT EXISTS conversaciones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canal TEXT NOT NULL,
+    contacto_id INTEGER,
+    identificador_externo TEXT,
+    nombre_externo TEXT,
+    ultimo_mensaje TEXT,
+    ultimo_mensaje_en TEXT,
+    no_leidos INTEGER NOT NULL DEFAULT 0,
+    vendedor_id INTEGER REFERENCES usuarios(id),
+    creado_en TEXT NOT NULL,
+    FOREIGN KEY (contacto_id) REFERENCES contactos(id)
+);
+
+CREATE TABLE IF NOT EXISTS mensajes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversacion_id INTEGER NOT NULL,
+    direccion TEXT NOT NULL,
+    texto TEXT,
+    fecha TEXT NOT NULL,
+    FOREIGN KEY (conversacion_id) REFERENCES conversaciones(id)
+);
 """
 
 AJUSTES_POR_DEFECTO = {
@@ -103,6 +129,7 @@ AJUSTES_POR_DEFECTO = {
     "prefijo_telefono": "593",
     "logo_archivo": "",
     "validez_dias": "3",
+    "margen_defecto": "10",
     "vendedor_nombre": "",
     "vendedor_cargo": "Ejecutivo de ventas",
     "vendedor_telefono": "",
@@ -147,11 +174,21 @@ def init_db():
             "ALTER TABLE cotizaciones ADD COLUMN iva_manual INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE cotizaciones ADD COLUMN tipo TEXT NOT NULL DEFAULT 'proforma'",
             "ALTER TABLE contactos ADD COLUMN vendedor_id INTEGER REFERENCES usuarios(id)",
+            "ALTER TABLE productos ADD COLUMN costo REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE contactos ADD COLUMN fecha_venta TEXT",
+            "ALTER TABLE productos ADD COLUMN orden INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE productos ADD COLUMN categoria TEXT NOT NULL DEFAULT 'llantas'",
         ):
             try:
                 conn.execute(columna_sql)
             except sqlite3.OperationalError:
                 pass  # la columna ya existe (base de datos creada con una version anterior)
+
+        # Los productos que ya existian antes de que "orden" existiera tienen
+        # todos 0 - les asignamos su propio id como orden inicial (orden de
+        # creacion) para que no queden todos empatados; el proximo import de
+        # Excel ya los va a reordenar segun la lista de precios real.
+        conn.execute("UPDATE productos SET orden = id WHERE orden = 0")
 
         # No se crea ningun usuario por defecto (ni contraseñas predefinidas):
         # si todavia no hay ningun usuario, app.py redirige a /configurar para

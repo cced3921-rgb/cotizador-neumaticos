@@ -1,0 +1,399 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Registrar venta manual</h2>
+  <a class="btn" href="{{ url_for('ventas') }}">&larr; Volver a Ventas</a>
+</div>
+
+<p style="color:var(--texto-suave); font-size:13px; margin-top:-8px;">
+  Para una venta que ya ocurrió sin pasar por Cotizar (mostrador, teléfono, etc.). Queda guardada con su PDF de
+  respaldo y el cliente pasa a "Vendido" de una vez.
+</p>
+
+<div class="grid-cotizar">
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">1. Cliente</h3>
+      <div class="form-grid">
+        <div>
+          <label>Contacto existente</label>
+          <select id="select-contacto">
+            <option value="">— Cliente nuevo —</option>
+            {% for c in contactos %}
+              <option value="{{ c.id }}" data-nombre="{{ c.nombre }}" data-telefono="{{ c.telefono }}">
+                {{ c.nombre }} ({{ c.telefono }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div></div>
+        <div>
+          <label>Nombre</label>
+          <input type="text" id="campo-nombre" placeholder="Nombre del cliente">
+        </div>
+        <div>
+          <label>Telefono</label>
+          <input type="tel" id="campo-telefono" placeholder="0991234567">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin-top:0;">2. Neumaticos vendidos</h3>
+      <div style="display:flex; gap:8px; margin-bottom:10px;">
+        <input type="search" id="buscador-productos" placeholder="Buscar producto..." style="flex:1; margin-bottom:0;">
+        <button type="button" class="btn btn-sm" id="btn-mostrar-producto-rapido">+ Producto nuevo</button>
+      </div>
+
+      <div class="panel-producto-rapido" id="panel-producto-rapido" hidden>
+        <p style="margin:0 0 10px; font-size:13px; color:var(--texto-suave);">
+          ¿Lo que vendió no está en el catálogo? Cárguelo aquí — se guarda en el catálogo y queda seleccionado
+          al instante.
+        </p>
+        <div class="form-grid">
+          <div>
+            <label>Marca</label>
+            <input type="text" id="pr-marca" placeholder="Continental">
+          </div>
+          <div>
+            <label>Modelo</label>
+            <input type="text" id="pr-modelo" placeholder="PowerContact">
+          </div>
+          <div>
+            <label>Medida</label>
+            <input type="text" id="pr-medida" placeholder="195/65 R15">
+          </div>
+          <div>
+            <label>Precio (USD)</label>
+            <input type="number" id="pr-precio" step="0.01" min="0" placeholder="0.00">
+          </div>
+          <div>
+            <label>Stock</label>
+            <input type="number" id="pr-stock" min="0" value="1">
+          </div>
+        </div>
+        <div id="pr-error" style="color:var(--peligro); font-size:13px; margin-top:8px;"></div>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button type="button" class="btn btn-primario" id="btn-guardar-producto-rapido">Guardar y agregar</button>
+          <button type="button" class="btn" id="btn-cancelar-producto-rapido">Cancelar</button>
+        </div>
+      </div>
+
+      <div class="lista-productos" id="lista-productos">
+        {% for p in productos %}
+        <div class="fila-producto" data-buscar="{{ (p.marca ~ ' ' ~ p.modelo ~ ' ' ~ p.medida ~ ' ' ~ p.categoria)|lower }}">
+          {% if p.imagen_procesada %}
+            <img src="{{ url_for('servir_imagen_procesada', nombre=p.imagen_procesada) }}" alt="">
+          {% else %}
+            <div style="width:48px;height:36px;border-radius:6px;background:#eee;flex-shrink:0;"></div>
+          {% endif %}
+          <div class="info">
+            <strong>{{ p.marca }} {{ p.modelo }}</strong>
+            <small><span class="etiqueta-categoria">{{ p.categoria|capitalize }}</span> · {{ p.medida }} · precio catalogo ${{ "%.2f"|format(p.precio) }} · stock {{ p.stock }}</small>
+          </div>
+          <div class="fila-producto-salto"></div>
+          <input type="checkbox" class="chk-producto" value="{{ p.id }}" data-precio="{{ p.precio }}">
+          <label class="precio-producto-envoltorio" title="Precio de venta real (editable)">
+            $<input type="number" class="precio-producto" step="0.01" min="0" value="{{ '%.2f'|format(p.precio) }}" data-precio-original="{{ p.precio }}">
+          </label>
+          <input type="number" class="cant-producto" value="1" min="1" title="Cantidad">
+        </div>
+        {% endfor %}
+        {% if not productos %}
+        <div class="vacio">Agrega neumaticos al catalogo primero.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">3. Fecha, IVA y total</h3>
+      <label>Fecha de la venta</label>
+      <input type="date" id="campo-fecha" value="{{ hoy }}" max="{{ hoy }}">
+
+      <div class="resumen-item" style="margin-top:12px;"><span>Subtotal (sin IVA)</span><span id="resumen-subtotal">$0.00</span></div>
+      <div class="resumen-item" style="align-items:center;">
+        <span>IVA (<span id="etiqueta-iva-porcentaje">15</span>%)</span>
+        <span style="display:flex; align-items:center; gap:6px;">
+          $<input type="number" id="campo-iva" step="0.01" min="0" value="0.00" style="width:90px; text-align:right; padding:4px 6px;">
+        </span>
+      </div>
+      <div id="aviso-iva-manual" style="display:none; font-size:12px; margin-top:4px;">
+        <span style="color:var(--texto-suave);">IVA editado a mano.</span>
+        <a href="#" id="btn-recalcular-iva">↺ Recalcular automatico (15%)</a>
+      </div>
+      <div class="total-linea"><span>Total</span><span id="resumen-total">$0.00</span></div>
+    </div>
+
+    <div class="panel">
+      <button class="btn btn-primario" id="btn-registrar" type="button" style="width:100%; justify-content:center;">✔ Registrar venta</button>
+      <div id="mensaje-error" style="color:var(--peligro); font-size:13px; margin-top:10px;"></div>
+
+      <div id="bloque-resultado" style="display:none; margin-top:16px;">
+        <p style="color:var(--primario); font-weight:600; margin:0 0 10px;">✔ Venta registrada y cliente marcado como Vendido.</p>
+        <a id="link-ver-pdf" href="#" target="_blank" class="btn" style="width:100%; justify-content:center;">📄 Ver el PDF de respaldo</a>
+        <a href="{{ url_for('ventas') }}" class="btn" style="width:100%; justify-content:center; margin-top:8px;">Ir a Ventas</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const selectContacto = document.getElementById('select-contacto');
+const campoNombre = document.getElementById('campo-nombre');
+const campoTelefono = document.getElementById('campo-telefono');
+
+function sincronizarContacto() {
+  const opcion = selectContacto.options[selectContacto.selectedIndex];
+  if (opcion && opcion.value) {
+    campoNombre.value = opcion.dataset.nombre || '';
+    campoTelefono.value = opcion.dataset.telefono || '';
+    campoNombre.disabled = true;
+    campoTelefono.disabled = true;
+  } else {
+    campoNombre.disabled = false;
+    campoTelefono.disabled = false;
+  }
+}
+selectContacto.addEventListener('change', sincronizarContacto);
+sincronizarContacto();
+
+document.getElementById('buscador-productos').addEventListener('input', (e) => {
+  const texto = e.target.value.toLowerCase();
+  document.querySelectorAll('.fila-producto').forEach(fila => {
+    fila.style.display = fila.dataset.buscar.includes(texto) ? 'flex' : 'none';
+  });
+});
+
+// --- agregar un producto nuevo al catalogo sin salir de esta pantalla ---
+const listaProductos = document.getElementById('lista-productos');
+const panelProductoRapido = document.getElementById('panel-producto-rapido');
+const errorProductoRapido = document.getElementById('pr-error');
+const camposProductoRapido = {
+  marca: document.getElementById('pr-marca'),
+  modelo: document.getElementById('pr-modelo'),
+  medida: document.getElementById('pr-medida'),
+  precio: document.getElementById('pr-precio'),
+  stock: document.getElementById('pr-stock'),
+};
+
+function mostrarPanelProductoRapido() {
+  panelProductoRapido.hidden = false;
+  camposProductoRapido.marca.focus();
+}
+function ocultarPanelProductoRapido() {
+  panelProductoRapido.hidden = true;
+  errorProductoRapido.textContent = '';
+  Object.values(camposProductoRapido).forEach(campo => campo.value = '');
+  camposProductoRapido.stock.value = '1';
+}
+document.getElementById('btn-mostrar-producto-rapido').addEventListener('click', () => {
+  panelProductoRapido.hidden ? mostrarPanelProductoRapido() : ocultarPanelProductoRapido();
+});
+document.getElementById('btn-cancelar-producto-rapido').addEventListener('click', ocultarPanelProductoRapido);
+
+function crearFilaProducto(p) {
+  const fila = document.createElement('div');
+  fila.className = 'fila-producto fila-nueva';
+  fila.dataset.buscar = `${p.marca} ${p.modelo} ${p.medida}`.toLowerCase();
+  fila.innerHTML = `
+    <div style="width:48px;height:36px;border-radius:6px;background:#eee;flex-shrink:0;"></div>
+    <div class="info">
+      <strong></strong>
+      <small></small>
+    </div>
+    <div class="fila-producto-salto"></div>
+    <input type="checkbox" class="chk-producto" value="${p.id}" data-precio="${p.precio}">
+    <label class="precio-producto-envoltorio" title="Precio de venta real (editable)">
+      $<input type="number" class="precio-producto" step="0.01" min="0" value="${p.precio.toFixed(2)}" data-precio-original="${p.precio}">
+    </label>
+    <input type="number" class="cant-producto" value="1" min="1" title="Cantidad">
+  `;
+  fila.querySelector('.info strong').textContent = `${p.marca} ${p.modelo}`;
+  fila.querySelector('.info small').textContent = `${p.medida} · precio catalogo $${p.precio.toFixed(2)} · stock ${p.stock}`;
+  return fila;
+}
+
+document.getElementById('btn-guardar-producto-rapido').addEventListener('click', async () => {
+  errorProductoRapido.textContent = '';
+  const cuerpo = {
+    marca: camposProductoRapido.marca.value.trim(),
+    modelo: camposProductoRapido.modelo.value.trim(),
+    medida: camposProductoRapido.medida.value.trim(),
+    precio: parseFloat(camposProductoRapido.precio.value || '0'),
+    stock: parseInt(camposProductoRapido.stock.value || '1', 10),
+  };
+  if (!cuerpo.marca || !cuerpo.modelo || !cuerpo.medida) {
+    errorProductoRapido.textContent = 'Marca, modelo y medida son obligatorios.';
+    return;
+  }
+  if (!cuerpo.precio || cuerpo.precio <= 0) {
+    errorProductoRapido.textContent = 'Ingresa un precio valido.';
+    return;
+  }
+
+  const boton = document.getElementById('btn-guardar-producto-rapido');
+  boton.disabled = true;
+  try {
+    const resp = await fetch('/api/catalogo/producto-rapido', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cuerpo),
+    });
+    const datos = await resp.json();
+    if (!resp.ok) {
+      errorProductoRapido.textContent = datos.error || 'No se pudo agregar el producto.';
+      return;
+    }
+
+    const fila = crearFilaProducto(datos.producto);
+    listaProductos.prepend(fila);
+    fila.querySelector('.chk-producto').checked = true;
+    fila.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    actualizarSubtotalEIva();
+    setTimeout(() => fila.classList.remove('fila-nueva'), 1800);
+
+    ocultarPanelProductoRapido();
+  } catch (err) {
+    errorProductoRapido.textContent = 'Error de conexion. Intenta de nuevo.';
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+function precioDeFila(fila, chk) {
+  const campoPrecio = fila.querySelector('.precio-producto');
+  const precio = parseFloat(campoPrecio.value);
+  if (!isNaN(precio) && precio > 0) return precio;
+  return parseFloat(chk.dataset.precio || '0');
+}
+
+function marcarPrecioEditado(campoPrecio) {
+  const original = parseFloat(campoPrecio.dataset.precioOriginal || '0');
+  const actual = parseFloat(campoPrecio.value || '0');
+  campoPrecio.closest('.precio-producto-envoltorio').classList.toggle(
+    'precio-editado', !isNaN(actual) && actual > 0 && actual.toFixed(2) !== original.toFixed(2)
+  );
+}
+
+function itemsSeleccionados() {
+  const items = [];
+  document.querySelectorAll('.chk-producto:checked').forEach(chk => {
+    const fila = chk.closest('.fila-producto');
+    const cantidad = parseInt(fila.querySelector('.cant-producto').value || '1', 10);
+    const precio_unitario = precioDeFila(fila, chk);
+    items.push({ producto_id: parseInt(chk.value, 10), cantidad, precio_unitario });
+  });
+  return items;
+}
+
+const TASA_IVA = 0.15;
+const campoIva = document.getElementById('campo-iva');
+const resumenSubtotal = document.getElementById('resumen-subtotal');
+const resumenTotal = document.getElementById('resumen-total');
+const avisoIvaManual = document.getElementById('aviso-iva-manual');
+let ivaEsManual = false;
+let subtotalActual = 0;
+
+function totalCatalogoSeleccionado() {
+  let total = 0;
+  document.querySelectorAll('.chk-producto:checked').forEach(chk => {
+    const fila = chk.closest('.fila-producto');
+    const cantidad = parseInt(fila.querySelector('.cant-producto').value || '1', 10);
+    total += precioDeFila(fila, chk) * cantidad;
+  });
+  return total;
+}
+
+function actualizarSubtotalEIva() {
+  const totalCatalogo = totalCatalogoSeleccionado();
+  subtotalActual = totalCatalogo / (1 + TASA_IVA);
+  resumenSubtotal.textContent = '$' + subtotalActual.toFixed(2);
+  if (!ivaEsManual) {
+    campoIva.value = (totalCatalogo - subtotalActual).toFixed(2);
+  }
+  actualizarTotalFinal();
+}
+
+function actualizarTotalFinal() {
+  const ivaActual = parseFloat(campoIva.value || '0');
+  resumenTotal.textContent = '$' + (subtotalActual + ivaActual).toFixed(2);
+}
+
+document.getElementById('lista-productos').addEventListener('change', (e) => {
+  if (e.target.classList.contains('chk-producto') || e.target.classList.contains('cant-producto') || e.target.classList.contains('precio-producto')) {
+    actualizarSubtotalEIva();
+  }
+});
+document.getElementById('lista-productos').addEventListener('input', (e) => {
+  if (e.target.classList.contains('cant-producto')) actualizarSubtotalEIva();
+  if (e.target.classList.contains('precio-producto')) {
+    marcarPrecioEditado(e.target);
+    actualizarSubtotalEIva();
+  }
+});
+
+campoIva.addEventListener('input', () => {
+  ivaEsManual = true;
+  avisoIvaManual.style.display = 'block';
+  actualizarTotalFinal();
+});
+
+document.getElementById('btn-recalcular-iva').addEventListener('click', (e) => {
+  e.preventDefault();
+  ivaEsManual = false;
+  avisoIvaManual.style.display = 'none';
+  actualizarSubtotalEIva();
+});
+
+const bloqueResultado = document.getElementById('bloque-resultado');
+const mensajeError = document.getElementById('mensaje-error');
+const botonRegistrar = document.getElementById('btn-registrar');
+
+botonRegistrar.addEventListener('click', async () => {
+  mensajeError.textContent = '';
+  const items = itemsSeleccionados();
+  if (items.length === 0) {
+    mensajeError.textContent = 'Selecciona al menos un neumatico.';
+    return;
+  }
+  if (!campoNombre.value.trim() && !selectContacto.value) {
+    mensajeError.textContent = 'Falta el nombre del cliente.';
+    return;
+  }
+
+  const cuerpo = {
+    contacto_id: selectContacto.value ? parseInt(selectContacto.value, 10) : null,
+    nombre: campoNombre.value,
+    telefono: campoTelefono.value || 'sin telefono',
+    items,
+    fecha: document.getElementById('campo-fecha').value,
+    iva_manual: ivaEsManual ? parseFloat(campoIva.value || '0') : null,
+  };
+
+  botonRegistrar.disabled = true;
+  try {
+    const resp = await fetch('/api/ventas/registrar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cuerpo),
+    });
+    const datos = await resp.json();
+    if (!resp.ok) {
+      mensajeError.textContent = datos.error || 'No se pudo registrar la venta.';
+      return;
+    }
+    document.getElementById('link-ver-pdf').href = datos.pdf_url;
+    bloqueResultado.style.display = 'block';
+    botonRegistrar.style.display = 'none';
+  } catch (err) {
+    mensajeError.textContent = 'Error de conexion. Intenta de nuevo.';
+  } finally {
+    botonRegistrar.disabled = false;
+  }
+});
+</script>
+{% endblock %}

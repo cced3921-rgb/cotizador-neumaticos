@@ -44,6 +44,18 @@
       {% endif %}
     </div>
 
+    <h3 style="margin-top:28px;">Catalogo</h3>
+    <div class="form-grid">
+      <div>
+        <label>Margen de ganancia por defecto (%)</label>
+        <input type="number" min="0" step="0.1" name="margen_defecto" value="{{ ajustes.margen_defecto }}">
+        <p style="font-size:12px; color:var(--texto-suave); margin-top:4px;">
+          Se usa para calcular el precio de venta a partir del costo (costo + este %), tanto al cargar un
+          neumático a mano como al importar el catálogo desde Excel/CSV sin indicar un precio explícito.
+        </p>
+      </div>
+    </div>
+
     <h3 style="margin-top:28px;">Firma del vendedor</h3>
     <div class="form-grid">
       <div>

@@ -1,14 +1,24 @@
 {% extends "base.html" %}
 {% block contenido %}
 <div class="encabezado">
-  <h2>Catalogo de neumaticos</h2>
+  <h2>Catalogo</h2>
   {% if es_admin %}
-  <a class="btn btn-primario" href="{{ url_for('producto_nuevo') }}">+ Agregar neumatico</a>
+  <a class="btn btn-primario" href="{{ url_for('producto_nuevo') }}">+ Agregar producto</a>
   {% endif %}
+</div>
+
+<div class="panel" style="padding-bottom:4px;">
+  <div class="pestanas-categoria">
+    <a class="pestana-categoria {{ 'activa' if not categoria else '' }}" href="{{ url_for('catalogo', q=q) }}">Todas</a>
+    {% for cat in categorias %}
+    <a class="pestana-categoria {{ 'activa' if categoria == cat else '' }}" href="{{ url_for('catalogo', q=q, categoria=cat) }}">{{ cat|capitalize }}</a>
+    {% endfor %}
+  </div>
 </div>
 
 <div class="panel">
   <form method="get" class="filtros">
+    <input type="hidden" name="categoria" value="{{ categoria }}">
     <input type="search" name="q" placeholder="Buscar por marca, modelo o medida..." value="{{ q }}">
     <button class="btn" type="submit">Buscar</button>
   </form>
@@ -16,13 +26,19 @@
 
 {% if es_admin %}
 <div class="panel">
-  <details {{ 'open' if q == '' and productos|length == 0 else '' }}>
+  <details {{ 'open' if q == '' and total_productos == 0 else '' }}>
     <summary style="cursor:pointer; font-weight:600; margin-bottom: 10px;">Importar catalogo desde Excel/CSV</summary>
     <p style="color:var(--texto-suave); font-size: 13px;">
-      Columnas: <code>marca, modelo, medida, precio, stock, imagen</code>. La columna
-      <code>imagen</code> es opcional: debe ser el nombre de un archivo ya subido antes
-      a la carpeta de imagenes del producto (puedes subir imagenes editando cada
-      neumatico despues de importar).
+      Columnas: <code>marca, modelo, medida, costo, precio, stock, imagen, categoria</code>. Solo
+      marca/modelo/medida son obligatorias. Si pones <code>costo</code> y dejas <code>precio</code> vacío, el
+      precio de venta se calcula solo: costo + el margen configurado en
+      <a href="{{ url_for('ajustes_vista') }}">Ajustes</a> (ahora mismo {{ "%g"|format(ajustes.margen_defecto|float) }}%).
+      Si pones <code>precio</code> directo, se usa ese tal cual. La columna <code>imagen</code> es opcional: debe
+      ser el nombre de un archivo ya subido antes a la carpeta de imágenes del producto. La columna
+      <code>categoria</code> también es opcional: escribe <code>llantas</code>, <code>aros</code>,
+      <code>aceites</code> o cualquier otra sección nueva que quieras crear; si la dejas vacía, se guarda como
+      <code>llantas</code>. <strong>Si un producto ya existe</strong> (misma marca/modelo/medida), se actualiza
+      en vez de duplicarse.
     </p>
     <form method="post" action="{{ url_for('catalogo_importar') }}" enctype="multipart/form-data" style="display:flex; gap:10px; align-items:center;">
       <input type="file" name="archivo" accept=".xlsx,.csv" required>
@@ -34,12 +50,20 @@
 
 <div class="panel">
   {% if productos %}
+  {% if es_admin %}
+  <div class="barra-seleccion" id="barra-seleccion">
+    <span id="texto-seleccion">0 seleccionados</span>
+    <button type="button" class="btn btn-sm btn-peligro" id="btn-eliminar-seleccionados" disabled>🗑️ Eliminar seleccionados</button>
+  </div>
+  {% endif %}
   <div class="tabla-scroll">
   <table>
     <thead>
       <tr>
+        {% if es_admin %}<th><input type="checkbox" id="chk-todos" title="Seleccionar todo"></th>{% endif %}
         <th></th>
         <th>Marca / Modelo</th>
+        {% if not categoria %}<th>Categoria</th>{% endif %}
         <th>Medida</th>
         <th>Precio</th>
         <th>Stock</th>
@@ -49,23 +73,25 @@
     <tbody>
       {% for p in productos %}
       <tr>
+        {% if es_admin %}<td><input type="checkbox" class="chk-producto-sel" value="{{ p.id }}"></td>{% endif %}
         <td>
           {% if p.imagen_procesada %}
-            <img class="miniatura" src="{{ url_for('servir_imagen_procesada', nombre=p.imagen_procesada) }}" alt="">
+            <span class="miniatura-zoom-contenedor"><img class="miniatura" src="{{ url_for('servir_imagen_procesada', nombre=p.imagen_procesada) }}" alt=""></span>
           {% elif p.imagen_original %}
-            <img class="miniatura" src="{{ url_for('servir_imagen_original', nombre=p.imagen_original) }}" alt="">
+            <span class="miniatura-zoom-contenedor"><img class="miniatura" src="{{ url_for('servir_imagen_original', nombre=p.imagen_original) }}" alt=""></span>
           {% else %}
             <div class="miniatura" style="display:flex;align-items:center;justify-content:center;color:#aaa;font-size:10px;">sin foto</div>
           {% endif %}
         </td>
         <td>{{ p.marca }} {{ p.modelo }}</td>
+        {% if not categoria %}<td><span class="etiqueta-categoria">{{ p.categoria|capitalize }}</span></td>{% endif %}
         <td>{{ p.medida }}</td>
         <td>${{ "%.2f"|format(p.precio) }}</td>
         <td>{{ p.stock }}</td>
         {% if es_admin %}
         <td style="text-align:right; white-space:nowrap;">
           <a class="btn btn-sm" href="{{ url_for('producto_editar', producto_id=p.id) }}">Editar</a>
-          <form method="post" action="{{ url_for('producto_eliminar', producto_id=p.id) }}" style="display:inline;" onsubmit="return confirm('¿Eliminar este neumatico del catalogo?');">
+          <form method="post" action="{{ url_for('producto_eliminar', producto_id=p.id) }}" style="display:inline;" onsubmit="return confirm('¿Eliminar este producto del catalogo?');">
             <button class="btn btn-sm btn-peligro" type="submit">Eliminar</button>
           </form>
         </td>
@@ -75,8 +101,142 @@
     </tbody>
   </table>
   </div>
+  {% if total_paginas > 1 %}
+  <div class="paginacion">
+    <span class="paginacion-info">
+      Pagina {{ pagina }} de {{ total_paginas }} &middot; {{ total_productos }} producto{{ 's' if total_productos != 1 else '' }}
+    </span>
+    <div class="paginacion-botones">
+      {% if pagina > 1 %}
+      <a class="btn btn-sm" href="{{ url_for('catalogo', q=q, categoria=categoria, pagina=pagina-1) }}">&larr; Anterior</a>
+      {% endif %}
+      {% if pagina < total_paginas %}
+      <a class="btn btn-sm" href="{{ url_for('catalogo', q=q, categoria=categoria, pagina=pagina+1) }}">Siguiente &rarr;</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
   {% else %}
-  <div class="vacio">Todavia no hay neumaticos en el catalogo.</div>
+  <div class="vacio">Todavia no hay productos {{ 'en "' + categoria|capitalize + '"' if categoria else 'en el catalogo' }}.</div>
   {% endif %}
 </div>
+
+<div class="zoom-backdrop" id="zoom-backdrop"></div>
+<div class="zoom-flotante" id="zoom-flotante"><img id="zoom-flotante-img" src="" alt=""></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const zoomFlotante = document.getElementById('zoom-flotante');
+  const zoomFlotanteImg = document.getElementById('zoom-flotante-img');
+  const zoomBackdrop = document.getElementById('zoom-backdrop');
+  if (!zoomFlotante) return;
+
+  function mostrarZoom(src) {
+    zoomFlotanteImg.src = src;
+    zoomFlotante.classList.add('visible');
+  }
+  function ocultarZoom() {
+    zoomFlotante.classList.remove('visible');
+    zoomBackdrop.classList.remove('visible');
+  }
+  function posicionarZoom(x, y) {
+    const w = 280, h = 200, margen = 16;
+    let left = x + 24;
+    let top = y - h / 2;
+    if (left + w > window.innerWidth - margen) left = x - w - 24;
+    if (left < margen) left = margen;
+    if (top < margen) top = margen;
+    if (top + h > window.innerHeight - margen) top = window.innerHeight - h - margen;
+    zoomFlotante.style.left = left + 'px';
+    zoomFlotante.style.top = top + 'px';
+  }
+
+  document.querySelectorAll('.miniatura-zoom-contenedor').forEach(cont => {
+    const img = cont.querySelector('img.miniatura');
+    if (!img) return;
+
+    cont.addEventListener('mouseenter', (e) => {
+      mostrarZoom(img.src);
+      posicionarZoom(e.clientX, e.clientY);
+    });
+    cont.addEventListener('mousemove', (e) => {
+      posicionarZoom(e.clientX, e.clientY);
+      const rect = cont.getBoundingClientRect();
+      const relX = (e.clientX - rect.left) / rect.width - 0.5;
+      const relY = (e.clientY - rect.top) / rect.height - 0.5;
+      img.style.transform = `scale(1.15) rotateY(${relX * 18}deg) rotateX(${-relY * 18}deg)`;
+      zoomFlotanteImg.style.transform = `scale(1.08) translate(${-relX * 14}px, ${-relY * 14}px)`;
+    });
+    cont.addEventListener('mouseleave', () => {
+      ocultarZoom();
+      img.style.transform = '';
+    });
+
+    // Movil: mantener presionada la foto para verla en grande, centrada.
+    cont.addEventListener('touchstart', () => {
+      mostrarZoom(img.src);
+      zoomBackdrop.classList.add('visible');
+    }, { passive: true });
+    cont.addEventListener('touchend', ocultarZoom);
+    cont.addEventListener('touchcancel', ocultarZoom);
+  });
+  zoomBackdrop.addEventListener('click', ocultarZoom);
+})();
+
+// --- seleccionar varios neumaticos y eliminarlos de una vez ---
+(function () {
+  const chkTodos = document.getElementById('chk-todos');
+  const barraSeleccion = document.getElementById('barra-seleccion');
+  if (!chkTodos || !barraSeleccion) return;
+
+  const textoSeleccion = document.getElementById('texto-seleccion');
+  const btnEliminar = document.getElementById('btn-eliminar-seleccionados');
+  const checkboxes = () => Array.from(document.querySelectorAll('.chk-producto-sel'));
+
+  function actualizarBarra() {
+    const marcados = checkboxes().filter(c => c.checked);
+    textoSeleccion.textContent = `${marcados.length} seleccionado${marcados.length !== 1 ? 's' : ''}`;
+    btnEliminar.disabled = marcados.length === 0;
+    barraSeleccion.classList.toggle('activa', marcados.length > 0);
+    const todasMarcadas = checkboxes().length > 0 && marcados.length === checkboxes().length;
+    chkTodos.checked = todasMarcadas;
+    chkTodos.indeterminate = marcados.length > 0 && !todasMarcadas;
+  }
+
+  chkTodos.addEventListener('change', () => {
+    checkboxes().forEach(c => { c.checked = chkTodos.checked; });
+    actualizarBarra();
+  });
+  document.querySelectorAll('.chk-producto-sel').forEach(c => {
+    c.addEventListener('change', actualizarBarra);
+  });
+
+  btnEliminar.addEventListener('click', async () => {
+    const ids = checkboxes().filter(c => c.checked).map(c => parseInt(c.value, 10));
+    if (ids.length === 0) return;
+    if (!confirm(`¿Eliminar ${ids.length} producto${ids.length !== 1 ? "s" : ""} del catalogo? Esta accion no se puede deshacer.`)) return;
+
+    btnEliminar.disabled = true;
+    try {
+      const resp = await fetch('/api/catalogo/eliminar-multiples', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const datos = await resp.json();
+      if (resp.ok) {
+        location.reload();
+      } else {
+        alert(datos.error || 'No se pudo eliminar los productos seleccionados.');
+        btnEliminar.disabled = false;
+      }
+    } catch (err) {
+      alert('Error de conexion. Intenta de nuevo.');
+      btnEliminar.disabled = false;
+    }
+  });
+})();
+</script>
 {% endblock %}

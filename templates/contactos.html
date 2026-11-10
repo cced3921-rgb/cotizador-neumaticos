@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block contenido %}
 <div class="encabezado">
-  <h2>Contactos (CRM)</h2>
+  <h2>CRM</h2>
   <a class="btn btn-primario" href="{{ url_for('contacto_nuevo') }}">+ Nuevo contacto</a>
+</div>
+
+<div class="filtros-rango" style="margin-bottom:16px;">
+  <a class="btn btn-sm btn-primario" href="{{ url_for('contactos') }}">☰ Lista</a>
+  <a class="btn btn-sm" href="{{ url_for('contactos_pipeline') }}">📊 Pipeline</a>
 </div>
 
 <div class="panel stats-grid">

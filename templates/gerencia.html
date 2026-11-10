@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Dashboard de gerencia</h2>
+  <div class="filtros-rango">
+    <a class="btn btn-sm {{ 'btn-primario' if rango == '7' else '' }}" href="{{ url_for('gerencia') }}?rango=7">7 dias</a>
+    <a class="btn btn-sm {{ 'btn-primario' if rango == '30' else '' }}" href="{{ url_for('gerencia') }}?rango=30">30 dias</a>
+    <a class="btn btn-sm {{ 'btn-primario' if rango == '90' else '' }}" href="{{ url_for('gerencia') }}?rango=90">90 dias</a>
+    <a class="btn btn-sm {{ 'btn-primario' if rango == 'todo' else '' }}" href="{{ url_for('gerencia') }}?rango=todo">Todo</a>
+  </div>
+</div>
+
+<div class="panel stats-grid">
+  <div>
+    <div style="font-size:24px; font-weight:700; color: var(--primario);">${{ "%.2f"|format(total_cotizado) }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Valor cotizado en el periodo</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700;">{{ total_envios }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Cotizaciones/proformas enviadas</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700;">${{ "%.2f"|format(ticket_promedio) }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Ticket promedio</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700; color: var(--rojo-marca);">{{ "%.1f"|format(tasa_conversion) }}%</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Tasa de conversion (vendido / total contactos)</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:0;">Ventas en el tiempo</h3>
+  {% if serie_tiempo %}
+  <div style="height:260px;"><canvas id="grafico-ventas"></canvas></div>
+  {% else %}
+  <div class="vacio">No hay proformas en este periodo todavia.</div>
+  {% endif %}
+</div>
+
+<div class="grid-cotizar">
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">Embudo del pipeline</h3>
+      <p style="font-size:12px; color:var(--texto-suave); margin-top:-8px;">Foto actual de todos los contactos (no depende del rango de fechas de arriba).</p>
+      <div style="height:220px;"><canvas id="grafico-embudo"></canvas></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h3 style="margin-top:0;">Neumaticos mas cotizados</h3>
+      {% if top_productos %}
+      <div class="tabla-scroll">
+      <table>
+        <thead><tr><th>Neumatico</th><th>Unidades</th><th>Valor</th></tr></thead>
+        <tbody>
+          {% for p in top_productos %}
+          <tr>
+            <td>{{ p.marca }} {{ p.modelo }}<br><small style="color:var(--texto-suave);">{{ p.medida }}</small></td>
+            <td>{{ p.unidades }}</td>
+            <td>${{ "%.2f"|format(p.valor) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <div class="vacio">Sin datos en este periodo.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:0;">Desempeno por vendedor</h3>
+  {% if vendedores %}
+  <div class="tabla-scroll">
+  <table>
+    <thead>
+      <tr><th>Vendedor</th><th>Envios</th><th>Valor cotizado</th><th>Vendidos (total)</th></tr>
+    </thead>
+    <tbody>
+      {% for v in vendedores %}
+      <tr>
+        <td>{{ v.nombre }}</td>
+        <td>{{ v.envios }}</td>
+        <td>${{ "%.2f"|format(v.valor_cotizado) }}</td>
+        <td>{{ v.vendidos }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vacio">Todavia no hay vendedores con actividad.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js" integrity="sha512-WoViKhKD4qI2WruSZqv9+kvM4WfFhUMQCLN4QlDTt5aU56fLQy2gYoxWIqlEnXqJy/+Ac5q/hk1oWfqnMDhwMA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+const serieTiempo = {{ serie_tiempo|tojson }};
+const embudo = {{ embudo|tojson }};
+
+if (serieTiempo.length) {
+  new Chart(document.getElementById('grafico-ventas'), {
+    type: 'line',
+    data: {
+      labels: serieTiempo.map(d => d.dia),
+      datasets: [{
+        label: 'Valor cotizado ($)',
+        data: serieTiempo.map(d => d.valor),
+        borderColor: '#128c4a',
+        backgroundColor: 'rgba(18,140,74,0.12)',
+        fill: true,
+        tension: 0.25,
+        pointRadius: 3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } },
+    },
+  });
+}
+
+const coloresEstado = {
+  nuevo: '#2952cc',
+  cotizado: '#a86a00',
+  negociacion: '#b5540a',
+  vendido: '#0e703b',
+  perdido: '#6b7280',
+};
+
+new Chart(document.getElementById('grafico-embudo'), {
+  type: 'bar',
+  data: {
+    labels: embudo.map(e => e.nombre),
+    datasets: [{
+      label: 'Contactos',
+      data: embudo.map(e => e.cantidad),
+      backgroundColor: embudo.map(e => coloresEstado[e.estado] || '#999'),
+      borderRadius: 6,
+    }],
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+  },
+});
+</script>
+{% endblock %}

@@ -1,13 +1,23 @@
 {% extends "base.html" %}
 {% block contenido %}
 <div class="encabezado">
-  <h2>{{ 'Editar neumatico' if producto else 'Agregar neumatico' }}</h2>
+  <h2>{{ 'Editar producto' if producto else 'Agregar producto' }}</h2>
   <a class="btn" href="{{ url_for('catalogo') }}">&larr; Volver al catalogo</a>
 </div>
 
 <div class="panel" style="max-width: 640px;">
   <form method="post" enctype="multipart/form-data">
     <div class="form-grid">
+      <div>
+        <label>Categoria</label>
+        <select name="categoria" id="campo-categoria">
+          {% for cat in categorias %}
+          <option value="{{ cat }}" {{ 'selected' if producto and producto.categoria == cat else '' }}>{{ cat|capitalize }}</option>
+          {% endfor %}
+          <option value="__otra__">+ Otra (escribir nueva)...</option>
+        </select>
+        <input type="text" name="categoria_otra" id="campo-categoria-otra" placeholder="Nombre de la nueva seccion" style="margin-top:6px; display:none;">
+      </div>
       <div>
         <label>Marca</label>
         <input type="text" name="marca" value="{{ producto.marca if producto else '' }}" required>
@@ -17,19 +27,26 @@
         <input type="text" name="modelo" value="{{ producto.modelo if producto else '' }}" required>
       </div>
       <div>
-        <label>Medida (ej. 195/65 R15)</label>
+        <label>Medida / presentacion (ej. 195/65 R15, R17, 1L 5W-30)</label>
         <input type="text" name="medida" value="{{ producto.medida if producto else '' }}" required>
       </div>
       <div>
-        <label>Precio (USD)</label>
-        <input type="number" step="0.01" min="0" name="precio" value="{{ producto.precio if producto else '' }}" required>
+        <label>Costo (USD) — lo que nos cuesta</label>
+        <input type="number" step="0.01" min="0" name="costo" id="campo-costo" value="{{ producto.costo if producto else '' }}">
+      </div>
+      <div>
+        <label>Precio de venta (USD)</label>
+        <input type="number" step="0.01" min="0" name="precio" id="campo-precio" value="{{ producto.precio if producto else '' }}" required>
+        <p id="aviso-precio-auto" style="font-size:11px; color:var(--texto-suave); margin:4px 0 0;">
+          Se calcula solo: costo + {{ "%g"|format(ajustes.margen_defecto|float) }}% (<a href="#" id="btn-recalcular-precio">recalcular</a>)
+        </p>
       </div>
       <div>
         <label>Stock</label>
         <input type="number" min="0" name="stock" value="{{ producto.stock if producto else 0 }}">
       </div>
       <div>
-        <label>Foto del neumatico</label>
+        <label>Foto del producto</label>
         <input type="file" name="imagen" accept=".jpg,.jpeg,.png,.webp">
       </div>
     </div>
@@ -50,4 +67,51 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const campoCategoria = document.getElementById('campo-categoria');
+  const campoCategoriaOtra = document.getElementById('campo-categoria-otra');
+  function actualizarCategoriaOtra() {
+    campoCategoriaOtra.style.display = campoCategoria.value === '__otra__' ? 'block' : 'none';
+  }
+  campoCategoria.addEventListener('change', actualizarCategoriaOtra);
+  actualizarCategoriaOtra();
+})();
+
+(function () {
+  const campoCosto = document.getElementById('campo-costo');
+  const campoPrecio = document.getElementById('campo-precio');
+  const avisoPrecioAuto = document.getElementById('aviso-precio-auto');
+  const MARGEN = {{ ajustes.margen_defecto|float }};
+  // Si ya existe un precio guardado (editando un neumatico existente), no lo
+  // pisamos solo porque se toque el costo - hay que pedirlo con "recalcular".
+  let precioAutomatico = !({{ (producto.precio if producto else 0)|float }} > 0);
+
+  function recalcularPrecio() {
+    const costo = parseFloat(campoCosto.value || '0');
+    if (costo > 0) {
+      campoPrecio.value = (costo * (1 + MARGEN / 100)).toFixed(2);
+    }
+    avisoPrecioAuto.style.display = 'block';
+  }
+
+  campoCosto.addEventListener('input', () => {
+    if (precioAutomatico) recalcularPrecio();
+  });
+  campoPrecio.addEventListener('input', () => {
+    precioAutomatico = false;
+    avisoPrecioAuto.style.display = 'none';
+  });
+  document.getElementById('btn-recalcular-precio').addEventListener('click', (e) => {
+    e.preventDefault();
+    precioAutomatico = true;
+    recalcularPrecio();
+  });
+
+  if (!precioAutomatico) avisoPrecioAuto.style.display = 'none';
+})();
+</script>
 {% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block contenido %}
+<div class="encabezado">
+  <h2>Inbox</h2>
+</div>
+
+<div class="panel">
+  <p style="margin:0; color:var(--texto-suave); font-size:14px;">
+    Bandeja unificada de mensajes: cuando conectes tus cuentas de <strong>WhatsApp Business</strong> y
+    <strong>Facebook Messenger</strong>, todas las conversaciones van a aparecer aquí mismo, asignables a cada
+    vendedor, con opción de crear el contacto en el CRM automáticamente — la base para automatizar respuestas
+    más adelante.
+  </p>
+</div>
+
+<div class="grid-cotizar">
+  <div>
+    <div class="panel tarjeta-canal">
+      <div class="tarjeta-canal-cabecera">
+        <span class="tarjeta-canal-icono" style="background:#e7f8ee; color:#1da851;">💬</span>
+        <div>
+          <h3 style="margin:0;">WhatsApp Business</h3>
+          <span class="badge badge-perdido">No conectado</span>
+        </div>
+      </div>
+      <p style="font-size:13px; color:var(--texto-suave);">
+        Recibe y responde los mensajes de WhatsApp de tus clientes sin salir del sistema, y que cada cotización
+        enviada quede ligada automáticamente a la conversación.
+      </p>
+      {% if es_admin %}
+      <button type="button" class="btn btn-primario" disabled title="Requiere la app de Meta aprobada y el servidor en línea">🔒 Conectar cuenta</button>
+      <p style="font-size:12px; color:var(--texto-suave); margin-top:10px; margin-bottom:0;">
+        Para activarlo hace falta: una app de <strong>WhatsApp Business API</strong> verificada en Meta, y que el
+        sistema esté en un servidor público con HTTPS (el VPS) para recibir los mensajes entrantes — ninguna de
+        las dos cosas está lista todavía.
+      </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="panel tarjeta-canal">
+      <div class="tarjeta-canal-cabecera">
+        <span class="tarjeta-canal-icono" style="background:#e8f1fd; color:#1877f2;">📘</span>
+        <div>
+          <h3 style="margin:0;">Facebook Messenger</h3>
+          <span class="badge badge-perdido">No conectado</span>
+        </div>
+      </div>
+      <p style="font-size:13px; color:var(--texto-suave);">
+        Centraliza los mensajes de la página de Facebook del negocio junto a los de WhatsApp, en la misma
+        bandeja y con el mismo flujo de seguimiento.
+      </p>
+      {% if es_admin %}
+      <button type="button" class="btn btn-primario" disabled title="Requiere la pagina de Facebook vinculada y el servidor en línea">🔒 Conectar cuenta</button>
+      <p style="font-size:12px; color:var(--texto-suave); margin-top:10px; margin-bottom:0;">
+        Para activarlo hace falta: vincular la <strong>página de Facebook</strong> del negocio a una app de Meta,
+        y el mismo servidor público con HTTPS que pide WhatsApp — se puede reutilizar la misma configuración.
+      </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3 style="margin-top:0;">Conversaciones</h3>
+  {% if conversaciones %}
+  <div class="tabla-scroll">
+  <table>
+    <thead>
+      <tr><th>Canal</th><th>Contacto</th><th>Último mensaje</th><th>Cuándo</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for c in conversaciones %}
+      <tr>
+        <td>{{ 'WhatsApp' if c.canal == 'whatsapp' else 'Facebook' }}</td>
+        <td>{{ c.nombre_externo or '—' }}</td>
+        <td>{{ c.ultimo_mensaje or '—' }}</td>
+        <td>{{ c.ultimo_mensaje_en or '—' }}</td>
+        <td style="text-align:right;"><a class="btn btn-sm" href="#">Abrir</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vacio">
+    Todavía no hay conversaciones — van a aparecer aquí en cuanto conectes WhatsApp o Facebook.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -21,16 +21,16 @@
 <div class="panel">
   {% if registros %}
   <div class="tabla-scroll">
-  <table>
+  <table class="tabla-actividad">
     <thead>
       <tr><th>Fecha</th><th>Usuario</th><th>Actividad</th></tr>
     </thead>
     <tbody>
       {% for r in registros %}
       <tr>
-        <td style="white-space:nowrap; color:var(--texto-suave); font-size:13px;">{{ r.fecha }}</td>
-        <td style="white-space:nowrap;"><strong>{{ r.usuario_nombre }}</strong></td>
-        <td>
+        <td class="col-fecha" style="white-space:nowrap; color:var(--texto-suave); font-size:13px;">{{ r.fecha }}</td>
+        <td class="col-usuario" style="white-space:nowrap;"><strong>{{ r.usuario_nombre }}</strong></td>
+        <td class="col-descripcion">
           {% set iconos = {'cotizacion': '🧾', 'contacto': '👥', 'producto': '🛞', 'usuario': '🔑', 'login': '🔓', 'ajustes': '⚙️'} %}
           {{ iconos.get(r.accion, '•') }} {{ r.descripcion }}
         </td>

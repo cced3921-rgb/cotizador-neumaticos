@@ -4,7 +4,15 @@
   <h2>Inicio</h2>
 </div>
 
-<div class="panel stats-grid">
+<div class="panel panel-accion-rapida">
+  <div>
+    <h3 style="margin:0 0 4px;">¿Vendiste algo ahora mismo?</h3>
+    <p style="margin:0; font-size:13px; color:var(--texto-suave);">Regístralo directo, sin pasar por Cotizar — queda guardado con su PDF y el cliente pasa a "Vendido" al instante.</p>
+  </div>
+  <a class="btn btn-primario" href="{{ url_for('venta_manual') }}" style="white-space:nowrap;">+ Registrar venta</a>
+</div>
+
+<div class="panel stats-grid stats-grid-6">
   <div>
     <div style="font-size:24px; font-weight:700; color: var(--rojo-marca);">{{ resumen.leads_hoy }}</div>
     <div style="font-size:12px; color:var(--texto-suave);">Leads contactados hoy</div>
@@ -18,10 +26,87 @@
     <div style="font-size:12px; color:var(--texto-suave);">Valor cotizado hoy</div>
   </div>
   <div>
+    <div style="font-size:24px; font-weight:700; color: var(--primario);">${{ "%.2f"|format(resumen.valor_vendido_hoy) }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Valor vendido hoy</div>
+  </div>
+  <div>
+    <div style="font-size:24px; font-weight:700; color: var(--primario);">${{ "%.2f"|format(resumen.ganancia_hoy) }}</div>
+    <div style="font-size:12px; color:var(--texto-suave);">Ganancia hoy</div>
+  </div>
+  <div>
     <div style="font-size:24px; font-weight:700;">{{ resumen.total_contactos }}</div>
     <div style="font-size:12px; color:var(--texto-suave);">Clientes guardados</div>
   </div>
 </div>
+{% if not hay_costos_cargados %}
+<p style="font-size:12px; color:var(--texto-suave); margin:-8px 0 16px;">
+  💡 La ganancia va a salir en $0 hasta que cargues el <strong>costo</strong> de al menos un neumatico
+  (Catalogo → Editar). Sin costo cargado no hay forma de calcular margen real.
+</p>
+{% endif %}
+
+<div class="panel">
+  <h3 style="margin-top:0;">Cotizado vs. vendido — ultimos 7 dias</h3>
+  <div style="height:240px;"><canvas id="grafico-7dias"></canvas></div>
+</div>
+
+<div class="panel panel-vendidos-hoy">
+  <h3 style="margin-top:0;">🎉 Vendidos hoy</h3>
+  {% if vendidos_hoy %}
+  <div class="tabla-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Cliente</th>
+        <th>Telefono</th>
+        <th>Hora</th>
+        <th>Valor</th>
+        <th>Ganancia</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in vendidos_hoy %}
+      <tr>
+        <td>{{ v.nombre }}</td>
+        <td>{{ v.telefono }}</td>
+        <td>{{ v.hora }}</td>
+        <td style="color:var(--primario); font-weight:600;">${{ "%.2f"|format(v.valor_venta) }}</td>
+        <td>${{ "%.2f"|format(v.ganancia_venta) }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <a class="btn btn-sm" href="{{ url_for('contacto_detalle', contacto_id=v.id) }}">Ver</a>
+          {% if v.pdf_venta %}
+          <a class="btn btn-sm" href="{{ url_for('servir_pdf', nombre=v.pdf_venta) }}" target="_blank">📄 PDF</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vacio">Todavia no se ha marcado ninguna venta hoy. Cuando muevas un lead a "Vendido" (desde Inicio, CRM o Pipeline), va a aparecer aqui.</div>
+  {% endif %}
+</div>
+
+{% if alertas %}
+<div class="panel panel-alertas">
+  <h3 style="margin-top:0;">⚠️ Alertas — necesitan atencion</h3>
+  <div class="lista-alertas">
+    {% for a in alertas %}
+    <div class="fila-alerta">
+      <span class="fila-alerta-icono">{{ a.icono }}</span>
+      <span class="fila-alerta-texto">{{ a.texto }}</span>
+      <a class="btn btn-sm" href="{{ a.link }}">{{ a.boton }}</a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="panel panel-alertas panel-alertas-ok">
+  <h3 style="margin:0;">✔ Todo al dia — no hay alertas pendientes</h3>
+</div>
+{% endif %}
 
 <div class="encabezado" style="margin-top:4px;">
   <h3 style="margin:0; font-size:16px;">Leads de hoy — retomar seguimiento</h3>
@@ -75,7 +160,42 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js" integrity="sha512-WoViKhKD4qI2WruSZqv9+kvM4WfFhUMQCLN4QlDTt5aU56fLQy2gYoxWIqlEnXqJy/+Ac5q/hk1oWfqnMDhwMA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
+const serie7dias = {{ serie_7dias|tojson }};
+new Chart(document.getElementById('grafico-7dias'), {
+  type: 'bar',
+  data: {
+    labels: serie7dias.map(d => d.dia.slice(5)),
+    datasets: [
+      {
+        label: 'Cotizado',
+        data: serie7dias.map(d => d.cotizado),
+        backgroundColor: 'rgba(107,114,128,0.35)',
+        borderRadius: 4,
+      },
+      {
+        label: 'Vendido',
+        data: serie7dias.map(d => d.vendido),
+        backgroundColor: '#128c4a',
+        borderRadius: 4,
+      },
+      {
+        label: 'Ganancia',
+        data: serie7dias.map(d => d.ganancia),
+        backgroundColor: '#5fb98a',
+        borderRadius: 4,
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom' } },
+    scales: { y: { beginAtZero: true } },
+  },
+});
+
 document.querySelectorAll('.selector-estado-dashboard').forEach(selector => {
   const estadoAnterior = selector.value;
   selector.dataset.estadoAnterior = estadoAnterior;

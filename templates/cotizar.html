@@ -36,7 +36,7 @@
     <div class="panel">
       <h3 style="margin-top:0;">2. Neumaticos</h3>
       <div style="display:flex; gap:8px; margin-bottom:10px;">
-        <input type="search" id="buscador-productos" placeholder="Buscar en el catalogo..." style="flex:1; margin-bottom:0;">
+        <input type="search" id="buscador-productos" placeholder="Buscar producto..." style="flex:1; margin-bottom:0;">
         <button type="button" class="btn btn-sm" id="btn-mostrar-producto-rapido">+ Producto nuevo</button>
       </div>
 
@@ -76,7 +76,7 @@
 
       <div class="lista-productos" id="lista-productos">
         {% for p in productos %}
-        <div class="fila-producto" data-buscar="{{ (p.marca ~ ' ' ~ p.modelo ~ ' ' ~ p.medida)|lower }}">
+        <div class="fila-producto" data-buscar="{{ (p.marca ~ ' ' ~ p.modelo ~ ' ' ~ p.medida ~ ' ' ~ p.categoria)|lower }}">
           {% if p.imagen_procesada %}
             <img src="{{ url_for('servir_imagen_procesada', nombre=p.imagen_procesada) }}" alt="">
           {% else %}
@@ -84,8 +84,9 @@
           {% endif %}
           <div class="info">
             <strong>{{ p.marca }} {{ p.modelo }}</strong>
-            <small>{{ p.medida }} · precio catalogo ${{ "%.2f"|format(p.precio) }} · stock {{ p.stock }}</small>
+            <small><span class="etiqueta-categoria">{{ p.categoria|capitalize }}</span> · {{ p.medida }} · precio catalogo ${{ "%.2f"|format(p.precio) }} · stock {{ p.stock }}</small>
           </div>
+          <div class="fila-producto-salto"></div>
           <input type="checkbox" class="chk-producto" value="{{ p.id }}" data-precio="{{ p.precio }}">
           <label class="precio-producto-envoltorio" title="Precio de este neumatico en esta cotizacion (editable)">
             $<input type="number" class="precio-producto" step="0.01" min="0" value="{{ '%.2f'|format(p.precio) }}" data-precio-original="{{ p.precio }}">
@@ -223,6 +224,7 @@ function crearFilaProducto(p) {
       <strong></strong>
       <small></small>
     </div>
+    <div class="fila-producto-salto"></div>
     <input type="checkbox" class="chk-producto" value="${p.id}" data-precio="${p.precio}">
     <label class="precio-producto-envoltorio" title="Precio de este neumatico en esta cotizacion (editable)">
       $<input type="number" class="precio-producto" step="0.01" min="0" value="${p.precio.toFixed(2)}" data-precio-original="${p.precio}">

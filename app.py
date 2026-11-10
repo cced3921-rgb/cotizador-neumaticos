@@ -6,6 +6,7 @@ import socket
 import threading
 import time
 import webbrowser
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, flash, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -43,10 +44,19 @@ app = Flask(__name__)
 # hay que definir SECRET_KEY como variable de entorno con un valor propio y
 # secreto: si quedara la clave fija, cualquiera podria falsificar sesiones.
 app.secret_key = os.environ.get("SECRET_KEY", "cotizador-neumaticos-local")
-# Render (y la mayoria de hostings) sirven la app por HTTPS y definen esta
-# variable: ahi exigimos que la cookie de sesion solo viaje por HTTPS. En
-# local (HTTP simple) no se exige, o el navegador la descartaria.
-app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("RENDER"))
+# Exige que la cookie de sesion solo viaje por HTTPS cuando el sitio se sirve
+# por HTTPS (Render, el VPS detras de nginx con certificado, etc.). En local
+# (HTTP simple) no se exige, o el navegador la descartaria. RENDER lo define
+# automaticamente; en un VPS propio hay que definir FORZAR_COOKIE_SEGURA=1
+# una vez que el dominio tenga su certificado funcionando.
+app.config["SESSION_COOKIE_SECURE"] = bool(
+    os.environ.get("RENDER") or os.environ.get("FORZAR_COOKIE_SEGURA")
+)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+# Limite de tamaño de subida (imagenes de producto, logo, Excel/CSV de
+# importacion): evita que una subida enorme llene el disco por error o abuso.
+app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024  # 15 MB
 
 database.init_db()
 
@@ -126,6 +136,12 @@ def configurar_admin():
     session.permanent = True
     flash(f"Cuenta de administrador '{usuario_input}' creada.", "ok")
     return redirect(url_for("dashboard"))
+
+
+@app.errorhandler(413)
+def _archivo_demasiado_grande(error):
+    flash("El archivo es demasiado grande (maximo 15 MB).", "error")
+    return redirect(request.referrer or url_for("dashboard"))
 
 
 @app.before_request
@@ -287,64 +303,125 @@ def servir_pdf(nombre):
 
 
 # --------------------------------------------------------------- catalogo --
+# Secciones fijas que siempre aparecen como pestaña, aunque todavia no tengan
+# ningun producto cargado (para que se pueda empezar a cargar aros/aceites
+# desde el primer momento). Cualquier otro valor que se use en "categoria"
+# (al cargar un producto o al importar un Excel) aparece como pestaña nueva
+# automaticamente, sin tener que tocar el codigo.
+CATEGORIAS_BASE = ["llantas", "aros", "aceites"]
+
+
+def _categorias_existentes(conn):
+    filas = conn.execute(
+        "SELECT DISTINCT categoria FROM productos WHERE activo = 1 AND categoria != ''"
+    ).fetchall()
+    extra = sorted({f["categoria"] for f in filas if f["categoria"] not in CATEGORIAS_BASE})
+    return CATEGORIAS_BASE + extra
+
+
+POR_PAGINA_CATALOGO = 60
+
+
 @app.route("/catalogo")
 def catalogo():
     q = request.args.get("q", "").strip()
+    categoria = request.args.get("categoria", "").strip().lower()
+    try:
+        pagina = max(1, int(request.args.get("pagina", 1)))
+    except (TypeError, ValueError):
+        pagina = 1
     conn = database.get_connection()
     try:
+        categorias = _categorias_existentes(conn)
+        if categoria not in categorias:
+            categoria = ""
+        base_sql = "FROM productos WHERE activo = 1"
+        params = []
+        if categoria:
+            base_sql += " AND categoria = ?"
+            params.append(categoria)
         if q:
             like = f"%{q}%"
-            productos = conn.execute(
-                "SELECT * FROM productos WHERE activo = 1 AND "
-                "(marca LIKE ? OR modelo LIKE ? OR medida LIKE ?) "
-                "ORDER BY marca, modelo",
-                (like, like, like),
-            ).fetchall()
-        else:
-            productos = conn.execute(
-                "SELECT * FROM productos WHERE activo = 1 ORDER BY marca, modelo"
-            ).fetchall()
+            base_sql += " AND (marca LIKE ? OR modelo LIKE ? OR medida LIKE ?)"
+            params.extend([like, like, like])
+
+        total_productos = conn.execute(f"SELECT COUNT(*) {base_sql}", params).fetchone()[0]
+        total_paginas = max(1, -(-total_productos // POR_PAGINA_CATALOGO))  # division hacia arriba
+        pagina = min(pagina, total_paginas)
+
+        productos = conn.execute(
+            f"SELECT * {base_sql} ORDER BY orden LIMIT ? OFFSET ?",
+            [*params, POR_PAGINA_CATALOGO, (pagina - 1) * POR_PAGINA_CATALOGO],
+        ).fetchall()
     finally:
         conn.close()
-    return render_template("catalogo.html", productos=productos, q=q)
+    return render_template(
+        "catalogo.html",
+        productos=productos,
+        q=q,
+        categoria=categoria,
+        categorias=categorias,
+        pagina=pagina,
+        total_paginas=total_paginas,
+        total_productos=total_productos,
+    )
+
+
+def _categoria_desde_form():
+    """La categoria viene del <select>; si se elige "Otra" se usa lo escrito
+    en el campo de texto que aparece al lado. Se normaliza a minusculas para
+    que no se creen pestañas duplicadas por mayusculas/espacios distintos
+    (ej. "Aceites" y "aceites ")."""
+    categoria = request.form.get("categoria", "").strip().lower()
+    if categoria == "__otra__":
+        categoria = request.form.get("categoria_otra", "").strip().lower()
+    return categoria or "llantas"
 
 
 @app.route("/catalogo/nuevo", methods=["GET", "POST"])
 @auth.requiere_admin
 def producto_nuevo():
+    conn = database.get_connection()
+    try:
+        categorias = _categorias_existentes(conn)
+    finally:
+        conn.close()
+
     if request.method == "GET":
-        return render_template("producto_form.html", producto=None)
+        return render_template("producto_form.html", producto=None, categorias=categorias)
 
     marca = request.form.get("marca", "").strip()
     modelo = request.form.get("modelo", "").strip()
     medida = request.form.get("medida", "").strip()
     precio = float(request.form.get("precio") or 0)
+    costo = float(request.form.get("costo") or 0)
     stock = int(request.form.get("stock") or 0)
     descripcion = request.form.get("descripcion", "").strip()
+    categoria = _categoria_desde_form()
 
     if not marca or not modelo or not medida:
         flash("Marca, modelo y medida son obligatorios.", "error")
-        return render_template("producto_form.html", producto=request.form)
+        return render_template("producto_form.html", producto=request.form, categorias=categorias)
 
     imagen_original = _guardar_imagen_subida(request.files.get("imagen"))
 
     conn = database.get_connection()
     try:
         cursor = conn.execute(
-            "INSERT INTO productos (marca, modelo, medida, precio, stock, "
-            "imagen_original, descripcion, activo, creado_en) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
-            (marca, modelo, medida, precio, stock, imagen_original, descripcion, database.ahora_iso()),
+            "INSERT INTO productos (marca, modelo, medida, precio, costo, stock, "
+            "imagen_original, descripcion, categoria, activo, creado_en, orden) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, (SELECT COALESCE(MAX(orden), 0) + 1 FROM productos))",
+            (marca, modelo, medida, precio, costo, stock, imagen_original, descripcion, categoria, database.ahora_iso()),
         )
         producto_id = cursor.lastrowid
         if imagen_original:
             regenerar_imagen_producto(conn, producto_id)
-        registrar_actividad(conn, "producto", f"Agrego el neumatico {marca} {modelo} al catalogo")
+        registrar_actividad(conn, "producto", f"Agrego {marca} {modelo} al catalogo ({categoria})")
         conn.commit()
     finally:
         conn.close()
 
-    flash(f"Neumatico {marca} {modelo} agregado al catalogo.", "ok")
+    flash(f"{marca} {modelo} agregado al catalogo.", "ok")
     return redirect(url_for("catalogo"))
 
 
@@ -355,39 +432,42 @@ def producto_editar(producto_id):
     try:
         producto = conn.execute("SELECT * FROM productos WHERE id = ?", (producto_id,)).fetchone()
         if not producto:
-            flash("Ese neumatico no existe.", "error")
+            flash("Ese producto no existe.", "error")
             return redirect(url_for("catalogo"))
+        categorias = _categorias_existentes(conn)
 
         if request.method == "GET":
-            return render_template("producto_form.html", producto=producto)
+            return render_template("producto_form.html", producto=producto, categorias=categorias)
 
         marca = request.form.get("marca", "").strip()
         modelo = request.form.get("modelo", "").strip()
         medida = request.form.get("medida", "").strip()
         precio = float(request.form.get("precio") or 0)
+        costo = float(request.form.get("costo") or 0)
         stock = int(request.form.get("stock") or 0)
         descripcion = request.form.get("descripcion", "").strip()
+        categoria = _categoria_desde_form()
 
         if not marca or not modelo or not medida:
             flash("Marca, modelo y medida son obligatorios.", "error")
-            return render_template("producto_form.html", producto=producto)
+            return render_template("producto_form.html", producto=producto, categorias=categorias)
 
         imagen_nueva = _guardar_imagen_subida(request.files.get("imagen"))
         imagen_original = imagen_nueva or producto["imagen_original"]
 
         conn.execute(
-            "UPDATE productos SET marca=?, modelo=?, medida=?, precio=?, stock=?, "
-            "imagen_original=?, descripcion=? WHERE id=?",
-            (marca, modelo, medida, precio, stock, imagen_original, descripcion, producto_id),
+            "UPDATE productos SET marca=?, modelo=?, medida=?, precio=?, costo=?, stock=?, "
+            "imagen_original=?, descripcion=?, categoria=? WHERE id=?",
+            (marca, modelo, medida, precio, costo, stock, imagen_original, descripcion, categoria, producto_id),
         )
         if imagen_original:
             regenerar_imagen_producto(conn, producto_id)
-        registrar_actividad(conn, "producto", f"Edito el neumatico {marca} {modelo}")
+        registrar_actividad(conn, "producto", f"Edito el producto {marca} {modelo}")
         conn.commit()
     finally:
         conn.close()
 
-    flash("Neumatico actualizado.", "ok")
+    flash("Producto actualizado.", "ok")
     return redirect(url_for("catalogo"))
 
 
@@ -407,6 +487,32 @@ def producto_eliminar(producto_id):
     return redirect(url_for("catalogo"))
 
 
+@app.route("/api/catalogo/eliminar-multiples", methods=["POST"])
+@auth.requiere_admin
+def api_catalogo_eliminar_multiples():
+    """Elimina (desactiva) varios neumaticos de una vez, seleccionados con
+    las casillas del catalogo - mismo efecto que eliminar uno por uno, solo
+    que en un solo paso."""
+    datos = request.get_json(force=True) or {}
+    ids = [int(i) for i in datos.get("ids", []) if str(i).isdigit()]
+    if not ids:
+        return jsonify({"error": "No se selecciono ningun neumatico."}), 400
+
+    conn = database.get_connection()
+    try:
+        marcadores = ",".join("?" * len(ids))
+        conn.execute(f"UPDATE productos SET activo = 0 WHERE id IN ({marcadores})", ids)
+        registrar_actividad(
+            conn, "producto",
+            f"Elimino {len(ids)} neumatico{'s' if len(ids) != 1 else ''} del catalogo de una vez",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"ok": True, "eliminados": len(ids)})
+
+
 @app.route("/catalogo/importar", methods=["POST"])
 @auth.requiere_admin
 def catalogo_importar():
@@ -415,36 +521,78 @@ def catalogo_importar():
         flash("Selecciona un archivo .xlsx o .csv para importar.", "error")
         return redirect(url_for("catalogo"))
 
+    ajustes = obtener_ajustes()
     try:
-        productos, errores = importador.importar_catalogo(archivo.filename, archivo.read())
+        margen_defecto = float(ajustes.get("margen_defecto") or 10)
+    except (TypeError, ValueError):
+        margen_defecto = 10.0
+
+    try:
+        productos, errores = importador.importar_catalogo(
+            archivo.filename, archivo.read(), margen_defecto=margen_defecto
+        )
     except ValueError as exc:
         flash(str(exc), "error")
         return redirect(url_for("catalogo"))
 
     conn = database.get_connection()
     insertados = 0
+    actualizados = 0
     try:
         for p in productos:
             imagen_original = p["imagen"] if p["imagen"] and (database.IMAGENES_DIR / p["imagen"]).exists() else None
-            cursor = conn.execute(
-                "INSERT INTO productos (marca, modelo, medida, precio, stock, "
-                "imagen_original, activo, creado_en) VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
-                (p["marca"], p["modelo"], p["medida"], p["precio"], p["stock"], imagen_original, database.ahora_iso()),
+
+            # Si ya existe un neumatico con la misma marca/modelo/medida (sin
+            # importar mayusculas), se actualiza en vez de duplicarlo - asi
+            # volver a subir el catalogo completo (ej. con los costos reales)
+            # corrige los precios existentes en lugar de crear copias.
+            existente = conn.execute(
+                "SELECT id FROM productos WHERE LOWER(marca) = LOWER(?) "
+                "AND LOWER(modelo) = LOWER(?) AND LOWER(medida) = LOWER(?)",
+                (p["marca"], p["modelo"], p["medida"]),
+            ).fetchone()
+
+            if existente:
+                if imagen_original:
+                    conn.execute(
+                        "UPDATE productos SET costo = ?, precio = ?, stock = ?, "
+                        "imagen_original = ?, categoria = ?, activo = 1, orden = ? WHERE id = ?",
+                        (p["costo"], p["precio"], p["stock"], imagen_original, p["categoria"], p["orden"], existente["id"]),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE productos SET costo = ?, precio = ?, stock = ?, categoria = ?, activo = 1, orden = ? WHERE id = ?",
+                        (p["costo"], p["precio"], p["stock"], p["categoria"], p["orden"], existente["id"]),
+                    )
+                conn.commit()
+                if imagen_original:
+                    regenerar_imagen_producto(conn, existente["id"])
+                actualizados += 1
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO productos (marca, modelo, medida, costo, precio, stock, "
+                    "imagen_original, categoria, activo, creado_en, orden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                    (p["marca"], p["modelo"], p["medida"], p["costo"], p["precio"], p["stock"],
+                     imagen_original, p["categoria"], database.ahora_iso(), p["orden"]),
+                )
+                conn.commit()
+                if imagen_original:
+                    regenerar_imagen_producto(conn, cursor.lastrowid)
+                insertados += 1
+
+        if insertados or actualizados:
+            registrar_actividad(
+                conn, "producto",
+                f"Importo el catalogo desde Excel/CSV: {insertados} nuevos, {actualizados} actualizados",
             )
-            conn.commit()
-            if imagen_original:
-                regenerar_imagen_producto(conn, cursor.lastrowid)
-            insertados += 1
-        if insertados:
-            registrar_actividad(conn, "producto", f"Importo {insertados} neumaticos al catalogo desde Excel/CSV")
             conn.commit()
     finally:
         conn.close()
 
-    mensaje = f"Se importaron {insertados} neumaticos."
+    mensaje = f"Listo: {insertados} neumaticos nuevos, {actualizados} actualizados."
     if errores:
         mensaje += f" ({len(errores)} filas con problemas: {'; '.join(errores[:5])})"
-    flash(mensaje, "ok" if insertados else "error")
+    flash(mensaje, "ok" if (insertados or actualizados) else "error")
     return redirect(url_for("catalogo"))
 
 
@@ -529,6 +677,67 @@ def obtener_resumen_crm(conn, vendedor_id=None):
     }
 
 
+def _resumen_ventas_por_dia(conn, vendedor_id, dias):
+    """Para cada uno de los ultimos `dias` dias (incluyendo hoy): cuanto se
+    coti­zo (suma de proformas emitidas ese dia) y cuanto se vendio + la
+    ganancia que genero (de los contactos marcados 'vendido' ese dia, usando
+    su ultima proforma como el monto/los items de la venta). La ganancia
+    depende de que el catalogo tenga el costo cargado por producto (Catalogo
+    > Editar); si no esta, se calcula como 0 para ese item, no se inventa."""
+    desde = (datetime.now() - timedelta(days=dias - 1)).strftime("%Y-%m-%d")
+    dias_lista = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(dias - 1, -1, -1)]
+    datos = {d: {"cotizado": 0.0, "vendido": 0.0, "ganancia": 0.0} for d in dias_lista}
+
+    sql_cot = (
+        "SELECT substr(fecha, 1, 10) AS dia, COALESCE(SUM(total), 0) AS valor "
+        "FROM cotizaciones WHERE tipo = 'proforma' AND fecha >= ?"
+    )
+    params_cot = [desde]
+    if vendedor_id:
+        sql_cot += " AND contacto_id IN (SELECT id FROM contactos WHERE vendedor_id = ?)"
+        params_cot.append(vendedor_id)
+    sql_cot += " GROUP BY dia"
+    for fila in conn.execute(sql_cot, params_cot).fetchall():
+        if fila["dia"] in datos:
+            datos[fila["dia"]]["cotizado"] = fila["valor"]
+
+    sql_vend = (
+        "SELECT c.id AS contacto_id, substr(c.fecha_venta, 1, 10) AS dia, "
+        "(SELECT id FROM cotizaciones WHERE contacto_id = c.id AND tipo = 'proforma' "
+        " ORDER BY fecha DESC LIMIT 1) AS cotizacion_id, "
+        "COALESCE((SELECT total FROM cotizaciones WHERE contacto_id = c.id AND tipo = 'proforma' "
+        " ORDER BY fecha DESC LIMIT 1), 0) AS total "
+        "FROM contactos c WHERE c.estado = 'vendido' AND c.fecha_venta >= ?"
+    )
+    params_vend = [desde]
+    if vendedor_id:
+        sql_vend += " AND c.vendedor_id = ?"
+        params_vend.append(vendedor_id)
+    ventas = conn.execute(sql_vend, params_vend).fetchall()
+
+    ids_cotizaciones = [v["cotizacion_id"] for v in ventas if v["cotizacion_id"]]
+    ganancia_por_cotizacion = {}
+    if ids_cotizaciones:
+        marcadores = ",".join("?" * len(ids_cotizaciones))
+        filas_gan = conn.execute(
+            f"SELECT ci.cotizacion_id AS cid, "
+            f"COALESCE(SUM((ci.precio_unitario - COALESCE(p.costo, 0)) * ci.cantidad), 0) AS ganancia "
+            f"FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id "
+            f"WHERE ci.cotizacion_id IN ({marcadores}) GROUP BY ci.cotizacion_id",
+            ids_cotizaciones,
+        ).fetchall()
+        ganancia_por_cotizacion = {f["cid"]: f["ganancia"] for f in filas_gan}
+
+    for v in ventas:
+        dia = v["dia"]
+        if dia not in datos:
+            continue
+        datos[dia]["vendido"] += v["total"]
+        datos[dia]["ganancia"] += ganancia_por_cotizacion.get(v["cotizacion_id"], 0)
+
+    return datos, dias_lista
+
+
 @app.route("/dashboard")
 def dashboard():
     """Pantalla principal al entrar al sistema: un vistazo rapido del
@@ -536,6 +745,8 @@ def dashboard():
     no perder el hilo y poder retomar el seguimiento con un clic."""
     vendedor_id = _vendedor_actual_id()
     hoy = database.ahora_iso()[:10]  # 'YYYY-MM-DD'
+    hace_3_dias = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
+    hace_2_dias = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
     conn = database.get_connection()
     try:
         resumen = obtener_resumen_crm(conn, vendedor_id)
@@ -559,6 +770,100 @@ def dashboard():
             params.append(vendedor_id)
         sql += "ORDER BY ultimo_contacto_hoy DESC"
         filas = conn.execute(sql, params).fetchall()
+
+        # --- vendidos hoy: un contacto puede pasar a "vendido" en el
+        # Pipeline/CRM un dia distinto al que se le genero la cotizacion
+        # (ej. se le cotizo ayer y hoy confirmo la compra), asi que esto es
+        # una consulta aparte de "leads_hoy" (que se basa en cotizaciones
+        # enviadas hoy, no en el estado actual). Usa la ultima proforma del
+        # contacto como el monto/los items de la venta.
+        # Se exige ademas c.estado = 'vendido': si alguien lo movio de vuelta
+        # a otro estado (fue un error, o se cayo la venta), tiene que
+        # desaparecer de aqui tambien - el dashboard sigue el estado actual
+        # del pipeline, no un registro congelado del momento en que se marco. ---
+        sql_vendidos_hoy = (
+            "SELECT c.*, "
+            "(SELECT id FROM cotizaciones WHERE contacto_id = c.id AND tipo = 'proforma' "
+            " ORDER BY fecha DESC LIMIT 1) AS ultima_cotizacion_id, "
+            "COALESCE((SELECT total FROM cotizaciones WHERE contacto_id = c.id AND tipo = 'proforma' "
+            " ORDER BY fecha DESC LIMIT 1), 0) AS valor_venta, "
+            "COALESCE((SELECT SUM((ci.precio_unitario - COALESCE(p.costo, 0)) * ci.cantidad) "
+            " FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id "
+            " WHERE ci.cotizacion_id = (SELECT id FROM cotizaciones WHERE contacto_id = c.id "
+            " AND tipo = 'proforma' ORDER BY fecha DESC LIMIT 1)), 0) AS ganancia_venta, "
+            "(SELECT pdf_archivo FROM cotizaciones WHERE contacto_id = c.id AND tipo = 'proforma' "
+            " ORDER BY fecha DESC LIMIT 1) AS pdf_venta "
+            "FROM contactos c WHERE c.estado = 'vendido' AND c.fecha_venta LIKE ? "
+        )
+        params_vendidos_hoy = [f"{hoy}%"]
+        if vendedor_id:
+            sql_vendidos_hoy += "AND c.vendedor_id = ? "
+            params_vendidos_hoy.append(vendedor_id)
+        sql_vendidos_hoy += "ORDER BY c.fecha_venta DESC"
+        filas_vendidos_hoy = conn.execute(sql_vendidos_hoy, params_vendidos_hoy).fetchall()
+
+        # --- alertas: cosas que necesitan atencion, sin importar el dia ---
+        alertas = []
+
+        sql_estancados = (
+            "SELECT COUNT(*) FROM contactos WHERE estado IN ('cotizado', 'negociacion') "
+            "AND COALESCE(ultimo_contacto, creado_en) < ?"
+        )
+        params_estancados = [hace_3_dias]
+        if vendedor_id:
+            sql_estancados += " AND vendedor_id = ?"
+            params_estancados.append(vendedor_id)
+        estancados = conn.execute(sql_estancados, params_estancados).fetchone()[0]
+        if estancados:
+            alertas.append({
+                "icono": "⏳",
+                "texto": f"{estancados} lead{'s' if estancados != 1 else ''} en cotizado/negociacion sin actividad hace mas de 3 dias",
+                "link": url_for("contactos"),
+                "boton": "Ver en CRM",
+            })
+
+        # Se excluyen los contactos que llegaron por una importacion masiva
+        # (origen 'importado' o 'DATA LOCAL'): son carga historica, no leads
+        # activos esperando respuesta, y contarlos haria esta alerta inutil
+        # (siempre al tope con la base entera).
+        sql_sin_seguimiento = (
+            "SELECT COUNT(*) FROM contactos WHERE estado = 'nuevo' AND creado_en < ? "
+            "AND (origen IS NULL OR origen NOT IN ('importado', 'DATA LOCAL'))"
+        )
+        params_sin_seguimiento = [hace_2_dias]
+        if vendedor_id:
+            sql_sin_seguimiento += " AND vendedor_id = ?"
+            params_sin_seguimiento.append(vendedor_id)
+        sin_seguimiento = conn.execute(sql_sin_seguimiento, params_sin_seguimiento).fetchone()[0]
+        if sin_seguimiento:
+            alertas.append({
+                "icono": "📵",
+                "texto": f"{sin_seguimiento} lead{'s' if sin_seguimiento != 1 else ''} nuevo{'s' if sin_seguimiento != 1 else ''} sin cotizar todavia (mas de 2 dias)",
+                "link": url_for("contactos") + "?estado=nuevo",
+                "boton": "Ver en CRM",
+            })
+
+        # Nota: no hay alerta de "poco stock" (ej. stock <= 2) porque el stock
+        # en el catalogo no se usa como inventario real controlado (la gran
+        # mayoria de productos quedo en 1 por defecto al importar) - esa
+        # alerta saldria siempre con casi todo el catalogo y seria puro
+        # ruido. "Agotado" (stock = 0) si es una señal real: alguien lo puso
+        # en 0 a proposito.
+        agotados = conn.execute(
+            "SELECT COUNT(*) FROM productos WHERE activo = 1 AND stock = 0"
+        ).fetchone()[0]
+        if agotados:
+            alertas.append({
+                "icono": "🚫",
+                "texto": f"{agotados} neumatico{'s' if agotados != 1 else ''} marcado{'s' if agotados != 1 else ''} como agotado en el catalogo",
+                "link": url_for("catalogo"),
+                "boton": "Ver catalogo",
+            })
+
+        datos_por_dia, dias_lista = _resumen_ventas_por_dia(conn, vendedor_id, 7)
+        hay_costos_cargados = conn.execute(
+            "SELECT 1 FROM productos WHERE activo = 1 AND costo > 0 LIMIT 1"
+        ).fetchone() is not None
     finally:
         conn.close()
 
@@ -574,13 +879,47 @@ def dashboard():
     resumen["cotizaciones_hoy"] = sum(l["cotizaciones_hoy"] for l in leads_hoy)
     resumen["valor_hoy"] = sum(l["valor_hoy"] for l in leads_hoy)
 
+    vendidos_hoy = []
+    for fila in filas_vendidos_hoy:
+        venta = dict(fila)
+        venta["wa_link"] = whatsapp.construir_link_wa(fila["telefono"], "", ajustes["prefijo_telefono"])
+        venta["hora"] = (venta["fecha_venta"] or "")[11:16]
+        vendidos_hoy.append(venta)
+
+    hoy_str = dias_lista[-1]
+    resumen["valor_vendido_hoy"] = datos_por_dia[hoy_str]["vendido"]
+    resumen["ganancia_hoy"] = datos_por_dia[hoy_str]["ganancia"]
+    serie_7dias = [{"dia": d, **datos_por_dia[d]} for d in dias_lista]
+
     return render_template(
         "dashboard.html",
         resumen=resumen,
         leads_hoy=leads_hoy,
+        vendidos_hoy=vendidos_hoy,
+        alertas=alertas,
+        serie_7dias=serie_7dias,
+        hay_costos_cargados=hay_costos_cargados,
         estados=ESTADOS_VALIDOS,
         nombres_estados=NOMBRES_ESTADOS,
     )
+
+
+@app.route("/inbox")
+def inbox():
+    """Bandeja unificada de mensajes. Por ahora es un panel de estado: las
+    cuentas de WhatsApp Business y Facebook Messenger todavia no estan
+    conectadas (eso requiere una app de Meta aprobada y un servidor publico
+    con HTTPS para recibir los webhooks, que hoy no existe porque seguimos
+    sin el VPS en linea). La tabla "conversaciones" ya existe lista para
+    cuando se conecten de verdad."""
+    conn = database.get_connection()
+    try:
+        conversaciones = conn.execute(
+            "SELECT * FROM conversaciones ORDER BY ultimo_mensaje_en DESC LIMIT 100"
+        ).fetchall()
+    finally:
+        conn.close()
+    return render_template("inbox.html", conversaciones=conversaciones)
 
 
 @app.route("/contactos")
@@ -667,7 +1006,16 @@ def api_contacto_actualizar_estado(contacto_id):
             return jsonify({"error": "Ese contacto no existe."}), 404
         if not auth.es_admin() and fila["vendedor_id"] != g.usuario["id"]:
             return jsonify({"error": "Ese contacto no es tuyo."}), 403
-        conn.execute("UPDATE contactos SET estado = ? WHERE id = ?", (estado, contacto_id))
+        # La fecha de venta se guarda la primera vez que entra a "vendido"
+        # (no se pisa si ya estaba vendido y solo se re-selecciona el mismo
+        # estado); sirve para saber que se vendio HOY en el dashboard.
+        if estado == "vendido" and fila["estado"] != "vendido":
+            conn.execute(
+                "UPDATE contactos SET estado = ?, fecha_venta = ? WHERE id = ?",
+                (estado, database.ahora_iso(), contacto_id),
+            )
+        else:
+            conn.execute("UPDATE contactos SET estado = ? WHERE id = ?", (estado, contacto_id))
         if estado != fila["estado"]:
             registrar_actividad(
                 conn, "contacto",
@@ -835,10 +1183,16 @@ def contacto_actualizar(contacto_id):
         if not contacto or not _puede_ver_contacto(contacto):
             flash("Ese contacto no es tuyo.", "error")
             return redirect(url_for("contactos"))
-        conn.execute(
-            "UPDATE contactos SET estado = ?, notas = ? WHERE id = ?",
-            (estado, notas, contacto_id),
-        )
+        if estado == "vendido" and contacto["estado"] != "vendido":
+            conn.execute(
+                "UPDATE contactos SET estado = ?, notas = ?, fecha_venta = ? WHERE id = ?",
+                (estado, notas, database.ahora_iso(), contacto_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE contactos SET estado = ?, notas = ? WHERE id = ?",
+                (estado, notas, contacto_id),
+            )
         registrar_actividad(conn, "contacto", f"Actualizo el contacto {contacto['nombre']}")
         conn.commit()
     finally:
@@ -854,7 +1208,7 @@ def cotizar():
     conn = database.get_connection()
     try:
         productos = conn.execute(
-            "SELECT * FROM productos WHERE activo = 1 ORDER BY marca, modelo"
+            "SELECT * FROM productos WHERE activo = 1 ORDER BY categoria, orden"
         ).fetchall()
         sql = "SELECT id, nombre, telefono FROM contactos"
         params = []
@@ -866,6 +1220,212 @@ def cotizar():
     finally:
         conn.close()
     return render_template("cotizar.html", productos=productos, contactos=contactos_lista)
+
+
+@app.route("/ventas")
+def ventas():
+    """Listado de todos los pedidos (cotizaciones y proformas) generados
+    desde Cotizar, con acceso directo a cada PDF - el historial completo de
+    lo que se ha mandado, sin tener que entrar contacto por contacto."""
+    vendedor_id = _vendedor_actual_id()
+    q = request.args.get("q", "").strip()
+    tipo = request.args.get("tipo", "")
+    rango = request.args.get("rango", "30")
+    conn = database.get_connection()
+    try:
+        sql = (
+            "SELECT co.*, c.nombre AS cliente_nombre, c.telefono AS cliente_telefono, "
+            "c.id AS contacto_id, u.nombre AS vendedor_nombre "
+            "FROM cotizaciones co "
+            "JOIN contactos c ON c.id = co.contacto_id "
+            "LEFT JOIN usuarios u ON u.id = c.vendedor_id "
+            "WHERE 1=1 "
+        )
+        params = []
+        if vendedor_id:
+            sql += "AND c.vendedor_id = ? "
+            params.append(vendedor_id)
+        if q:
+            sql += "AND (c.nombre LIKE ? OR c.telefono LIKE ?) "
+            params.extend([f"%{q}%", f"%{q}%"])
+        if tipo in ("cotizacion", "proforma"):
+            sql += "AND co.tipo = ? "
+            params.append(tipo)
+        if rango != "todo":
+            dias = int(rango) if rango.isdigit() else 30
+            desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+            sql += "AND co.fecha >= ? "
+            params.append(desde)
+        sql += "ORDER BY co.fecha DESC LIMIT 300"
+        pedidos = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+
+    total_valor = sum(p["total"] for p in pedidos if p["tipo"] == "proforma")
+
+    return render_template(
+        "ventas.html",
+        pedidos=pedidos,
+        q=q,
+        tipo=tipo,
+        rango=rango,
+        total_valor=total_valor,
+    )
+
+
+@app.route("/ventas/registrar")
+def venta_manual():
+    """Formulario para registrar una venta que ocurrio sin pasar por
+    Cotizar (venta directa de mostrador, telefono, etc.) - mismo selector
+    de cliente/productos que Cotizar, pero queda marcada como vendida de
+    una vez, con su propio PDF de respaldo."""
+    vendedor_id = _vendedor_actual_id()
+    conn = database.get_connection()
+    try:
+        productos = conn.execute(
+            "SELECT * FROM productos WHERE activo = 1 ORDER BY categoria, orden"
+        ).fetchall()
+        sql = "SELECT id, nombre, telefono FROM contactos"
+        params = []
+        if vendedor_id:
+            sql += " WHERE vendedor_id = ?"
+            params.append(vendedor_id)
+        sql += " ORDER BY nombre"
+        contactos_lista = conn.execute(sql, params).fetchall()
+    finally:
+        conn.close()
+    hoy = database.ahora_iso()[:10]
+    return render_template(
+        "venta_manual.html", productos=productos, contactos=contactos_lista, hoy=hoy
+    )
+
+
+@app.route("/api/ventas/registrar", methods=["POST"])
+def api_venta_manual():
+    """Registra una venta directa: crea (o reutiliza) el contacto, guarda la
+    cotizacion tipo proforma con sus items, genera el PDF de respaldo, y
+    marca el contacto como 'vendido' de una vez (con la fecha que se haya
+    indicado, para poder registrar ventas de dias anteriores que no se
+    hayan cargado a tiempo)."""
+    datos = request.get_json(force=True)
+    ajustes = obtener_ajustes()
+    conn = database.get_connection()
+    try:
+        contacto_id = datos.get("contacto_id")
+        if contacto_id:
+            contacto_existente = conn.execute(
+                "SELECT * FROM contactos WHERE id = ?", (contacto_id,)
+            ).fetchone()
+            if not contacto_existente or not _puede_ver_contacto(contacto_existente):
+                return jsonify({"error": "Ese contacto no es tuyo."}), 403
+        else:
+            nombre = (datos.get("nombre") or "").strip()
+            telefono = (datos.get("telefono") or "").strip()
+            if not nombre or not telefono:
+                return jsonify({"error": "Falta nombre o telefono del cliente."}), 400
+            sql_existe = "SELECT id FROM contactos WHERE telefono = ?"
+            params_existe = [telefono]
+            if not auth.es_admin():
+                sql_existe += " AND vendedor_id = ?"
+                params_existe.append(g.usuario["id"])
+            existente = conn.execute(sql_existe, params_existe).fetchone()
+            if existente:
+                contacto_id = existente["id"]
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en, vendedor_id) "
+                    "VALUES (?, ?, 'venta directa', 'nuevo', ?, ?)",
+                    (nombre, telefono, database.ahora_iso(), g.usuario["id"]),
+                )
+                conn.commit()
+                contacto_id = cursor.lastrowid
+
+        contacto = conn.execute("SELECT * FROM contactos WHERE id = ?", (contacto_id,)).fetchone()
+        items = _items_desde_json(conn, datos.get("items", []))
+        if not items:
+            return jsonify({"error": "Selecciona al menos un neumatico."}), 400
+        total_catalogo = sum(it["cantidad"] * it["precio_unitario"] for it in items)
+
+        iva_manual = datos.get("iva_manual")
+        iva_manual = float(iva_manual) if iva_manual not in (None, "") else None
+        totales = calcular_totales(total_catalogo, iva_manual)
+
+        # Fecha de la venta: hoy por defecto, pero se puede indicar una
+        # anterior (registrar algo que paso ayer y no se cargo a tiempo).
+        # Siempre a la hora actual dentro de ese dia, para que el orden con
+        # otras cotizaciones del mismo dia tenga sentido.
+        fecha_form = (datos.get("fecha") or "").strip()
+        hoy_hora = database.ahora_iso()
+        if fecha_form and fecha_form != hoy_hora[:10]:
+            fecha = f"{fecha_form} {hoy_hora[11:]}"
+        else:
+            fecha = hoy_hora
+
+        mensaje = f"Venta registrada manualmente para {contacto['nombre']}."
+        cursor = conn.execute(
+            "INSERT INTO cotizaciones (contacto_id, fecha, tipo, subtotal, iva, iva_manual, total, mensaje_texto) "
+            "VALUES (?, ?, 'proforma', ?, ?, ?, ?, ?)",
+            (contacto_id, fecha, totales["subtotal"], totales["iva"], int(totales["iva_manual"]), totales["total"], mensaje),
+        )
+        cotizacion_id = cursor.lastrowid
+        for it in items:
+            conn.execute(
+                "INSERT INTO cotizacion_items (cotizacion_id, producto_id, marca, modelo, medida, "
+                "cantidad, precio_unitario) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cotizacion_id, it["producto_id"], it["marca"], it["modelo"], it["medida"], it["cantidad"], it["precio_unitario"]),
+            )
+
+        ruta_logo = None
+        if ajustes.get("logo_archivo"):
+            posible = database.LOGO_DIR / ajustes["logo_archivo"]
+            if posible.exists():
+                ruta_logo = posible
+
+        nombre_pdf = pdf_cotizacion.nombre_archivo_pdf(cotizacion_id, contacto["nombre"], "proforma")
+        ruta_pdf = database.COTIZACIONES_DIR / nombre_pdf
+        pdf_cotizacion.generar_pdf_cotizacion(
+            ruta_pdf,
+            folio=cotizacion_id,
+            fecha=fecha,
+            ajustes=ajustes,
+            contacto=dict(contacto),
+            items=items,
+            tipo="proforma",
+            subtotal=totales["subtotal"],
+            iva=totales["iva"],
+            total=totales["total"],
+            ruta_logo=ruta_logo,
+        )
+        conn.execute("UPDATE cotizaciones SET pdf_archivo = ? WHERE id = ?", (nombre_pdf, cotizacion_id))
+
+        # Queda vendido de una vez. La fecha_venta sigue la misma regla que
+        # el resto del sistema: solo se pisa si no estaba ya vendido, para
+        # no perder la fecha real de una venta anterior si se repite.
+        if contacto["estado"] != "vendido":
+            conn.execute(
+                "UPDATE contactos SET ultimo_contacto = ?, estado = 'vendido', fecha_venta = ? WHERE id = ?",
+                (fecha, fecha, contacto_id),
+            )
+        else:
+            conn.execute("UPDATE contactos SET ultimo_contacto = ? WHERE id = ?", (fecha, contacto_id))
+
+        registrar_actividad(
+            conn, "cotizacion",
+            f"Registro una venta manual para {contacto['nombre']} por ${totales['total']:,.2f}",
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify(
+        {
+            "ok": True,
+            "contacto_id": contacto_id,
+            "cotizacion_id": cotizacion_id,
+            "pdf_url": url_for("servir_pdf", nombre=nombre_pdf),
+            "total": totales["total"],
+        }
+    )
 
 
 @app.route("/api/catalogo/producto-rapido", methods=["POST"])
@@ -899,8 +1459,8 @@ def api_producto_rapido():
     conn = database.get_connection()
     try:
         cursor = conn.execute(
-            "INSERT INTO productos (marca, modelo, medida, precio, stock, activo, creado_en) "
-            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            "INSERT INTO productos (marca, modelo, medida, precio, stock, activo, creado_en, orden) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?, (SELECT COALESCE(MAX(orden), 0) + 1 FROM productos))",
             (marca, modelo, medida, precio, stock, database.ahora_iso()),
         )
         producto_id = cursor.lastrowid
@@ -1126,6 +1686,7 @@ def ajustes_vista():
             "direccion_negocio": request.form.get("direccion_negocio", "").strip(),
             "prefijo_telefono": request.form.get("prefijo_telefono", "593").strip(),
             "validez_dias": request.form.get("validez_dias", "3").strip(),
+            "margen_defecto": request.form.get("margen_defecto", "10").strip(),
             "vendedor_nombre": request.form.get("vendedor_nombre", "").strip(),
             "vendedor_cargo": request.form.get("vendedor_cargo", "").strip(),
             "vendedor_telefono": request.form.get("vendedor_telefono", "").strip(),
@@ -1194,6 +1755,99 @@ def actividad():
         conn.close()
     return render_template(
         "actividad.html", registros=registros, usuarios=usuarios_lista, usuario_id=usuario_id
+    )
+
+
+@app.route("/gerencia")
+@auth.requiere_admin
+def gerencia():
+    """Dashboard de gerencia: panorama del negocio para la administracion -
+    a diferencia de Inicio (el dia a dia operativo de cada vendedor), este
+    mira tendencias: ventas en el tiempo, embudo del pipeline, productos
+    mas cotizados y desempeno por vendedor."""
+    rango = request.args.get("rango", "30")  # dias como texto, o 'todo'
+    conn = database.get_connection()
+    try:
+        filtro_fecha = ""
+        params_fecha = []
+        if rango != "todo":
+            dias = int(rango) if rango.isdigit() else 30
+            desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+            filtro_fecha = "AND fecha >= ?"
+            params_fecha = [desde]
+
+        # --- KPIs generales (solo proformas: son las que tienen un total real) ---
+        total_cotizado = conn.execute(
+            f"SELECT COALESCE(SUM(total), 0) FROM cotizaciones WHERE tipo = 'proforma' {filtro_fecha}",
+            params_fecha,
+        ).fetchone()[0]
+        total_envios = conn.execute(
+            f"SELECT COUNT(*) FROM cotizaciones WHERE 1=1 {filtro_fecha}",
+            params_fecha,
+        ).fetchone()[0]
+        ticket_promedio = (total_cotizado / total_envios) if total_envios else 0
+
+        # --- embudo del pipeline: foto actual de todos los contactos (no se
+        # filtra por rango de fechas, es "donde esta cada quien ahora") ---
+        embudo = []
+        for estado in ESTADOS_VALIDOS:
+            cantidad = conn.execute(
+                "SELECT COUNT(*) FROM contactos WHERE estado = ?", (estado,)
+            ).fetchone()[0]
+            valor = conn.execute(
+                "SELECT COALESCE(SUM(total), 0) FROM cotizaciones WHERE tipo = 'proforma' "
+                "AND contacto_id IN (SELECT id FROM contactos WHERE estado = ?)",
+                (estado,),
+            ).fetchone()[0]
+            embudo.append({"estado": estado, "nombre": NOMBRES_ESTADOS[estado], "cantidad": cantidad, "valor": valor})
+        total_contactos_embudo = sum(e["cantidad"] for e in embudo)
+        vendidos = next((e["cantidad"] for e in embudo if e["estado"] == "vendido"), 0)
+        tasa_conversion = (vendidos / total_contactos_embudo * 100) if total_contactos_embudo else 0
+
+        # --- ventas en el tiempo, agrupadas por dia ---
+        serie_tiempo = conn.execute(
+            f"SELECT substr(fecha, 1, 10) AS dia, COUNT(*) AS envios, COALESCE(SUM(total), 0) AS valor "
+            f"FROM cotizaciones WHERE tipo = 'proforma' {filtro_fecha} GROUP BY dia ORDER BY dia",
+            params_fecha,
+        ).fetchall()
+
+        # --- productos mas cotizados (por valor) ---
+        filtro_fecha_co = filtro_fecha.replace("fecha", "co.fecha")
+        top_productos = conn.execute(
+            f"SELECT ci.marca, ci.modelo, ci.medida, SUM(ci.cantidad) AS unidades, "
+            f"SUM(ci.cantidad * ci.precio_unitario) AS valor "
+            f"FROM cotizacion_items ci JOIN cotizaciones co ON co.id = ci.cotizacion_id "
+            f"WHERE co.tipo = 'proforma' {filtro_fecha_co} "
+            f"GROUP BY ci.marca, ci.modelo, ci.medida ORDER BY valor DESC LIMIT 8",
+            params_fecha,
+        ).fetchall()
+
+        # --- desempeno por vendedor ---
+        vendedores = conn.execute(
+            f"SELECT u.id, u.nombre, "
+            f"COUNT(DISTINCT co.id) AS envios, COALESCE(SUM(co.total), 0) AS valor_cotizado, "
+            f"(SELECT COUNT(*) FROM contactos WHERE vendedor_id = u.id AND estado = 'vendido') AS vendidos "
+            f"FROM usuarios u "
+            f"LEFT JOIN contactos c ON c.vendedor_id = u.id "
+            f"LEFT JOIN cotizaciones co ON co.contacto_id = c.id AND co.tipo = 'proforma' {filtro_fecha_co} "
+            f"WHERE u.activo = 1 "
+            f"GROUP BY u.id, u.nombre ORDER BY valor_cotizado DESC",
+            params_fecha,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return render_template(
+        "gerencia.html",
+        rango=rango,
+        total_cotizado=total_cotizado,
+        total_envios=total_envios,
+        ticket_promedio=ticket_promedio,
+        embudo=embudo,
+        tasa_conversion=tasa_conversion,
+        serie_tiempo=[dict(f) for f in serie_tiempo],
+        top_productos=top_productos,
+        vendedores=vendedores,
     )
 
 
