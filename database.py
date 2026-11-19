@@ -178,6 +178,7 @@ def init_db():
             "ALTER TABLE contactos ADD COLUMN fecha_venta TEXT",
             "ALTER TABLE productos ADD COLUMN orden INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE productos ADD COLUMN categoria TEXT NOT NULL DEFAULT 'llantas'",
+            "ALTER TABLE cotizaciones ADD COLUMN canal_venta TEXT",
         ):
             try:
                 conn.execute(columna_sql)

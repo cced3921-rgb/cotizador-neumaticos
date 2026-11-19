@@ -20,7 +20,8 @@
           <select id="select-contacto">
             <option value="">— Cliente nuevo —</option>
             {% for c in contactos %}
-              <option value="{{ c.id }}" data-nombre="{{ c.nombre }}" data-telefono="{{ c.telefono }}">
+              <option value="{{ c.id }}" data-nombre="{{ c.nombre }}" data-telefono="{{ c.telefono }}"
+                {{ 'selected' if request.args.get('contacto_id')|string == c.id|string else '' }}>
                 {{ c.nombre }} ({{ c.telefono }})
               </option>
             {% endfor %}
@@ -112,6 +113,14 @@
       <label>Fecha de la venta</label>
       <input type="date" id="campo-fecha" value="{{ hoy }}" max="{{ hoy }}">
 
+      <label style="margin-top:12px;">¿Como se hizo esta venta?</label>
+      <select id="campo-canal">
+        <option value="local">Local fisico</option>
+        <option value="en_linea">En linea</option>
+        <option value="__otro__">Otro...</option>
+      </select>
+      <input type="text" id="campo-canal-otro" placeholder="Especifica como se hizo (ej. feria, telefono)" style="margin-top:6px; display:none;">
+
       <div class="resumen-item" style="margin-top:12px;"><span>Subtotal (sin IVA)</span><span id="resumen-subtotal">$0.00</span></div>
       <div class="resumen-item" style="align-items:center;">
         <span>IVA (<span id="etiqueta-iva-porcentaje">15</span>%)</span>
@@ -160,6 +169,14 @@ function sincronizarContacto() {
 }
 selectContacto.addEventListener('change', sincronizarContacto);
 sincronizarContacto();
+
+const campoCanal = document.getElementById('campo-canal');
+const campoCanalOtro = document.getElementById('campo-canal-otro');
+function actualizarCampoCanalOtro() {
+  campoCanalOtro.style.display = campoCanal.value === '__otro__' ? 'block' : 'none';
+}
+campoCanal.addEventListener('change', actualizarCampoCanalOtro);
+actualizarCampoCanalOtro();
 
 document.getElementById('buscador-productos').addEventListener('input', (e) => {
   const texto = e.target.value.toLowerCase();
@@ -365,6 +382,10 @@ botonRegistrar.addEventListener('click', async () => {
     return;
   }
 
+  const canal_venta = campoCanal.value === '__otro__'
+    ? (campoCanalOtro.value.trim() || 'Otro')
+    : (campoCanal.options[campoCanal.selectedIndex].text);
+
   const cuerpo = {
     contacto_id: selectContacto.value ? parseInt(selectContacto.value, 10) : null,
     nombre: campoNombre.value,
@@ -372,6 +393,7 @@ botonRegistrar.addEventListener('click', async () => {
     items,
     fecha: document.getElementById('campo-fecha').value,
     iva_manual: ivaEsManual ? parseFloat(campoIva.value || '0') : null,
+    canal_venta,
   };
 
   botonRegistrar.disabled = true;

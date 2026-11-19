@@ -62,14 +62,15 @@
   <div class="tabla-scroll">
   <table>
     <thead>
-      <tr><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Ultimo contacto</th><th></th></tr>
+      <tr><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Seguimiento</th><th>Ultimo contacto</th><th></th></tr>
     </thead>
     <tbody id="cuerpo-tabla-contactos">
       {% for c in contactos %}
-      <tr data-buscar="{{ (c.nombre ~ ' ' ~ c.telefono)|lower }}">
+      <tr data-buscar="{{ (c.nombre ~ ' ' ~ c.telefono)|lower }}" class="fila-clicable" data-href="{{ url_for('contacto_detalle', contacto_id=c.id) }}">
         <td>{{ c.nombre }}</td>
         <td>{{ c.telefono }}</td>
         <td><span class="badge badge-{{ c.estado }}">{{ c.estado|capitalize }}</span></td>
+        <td><span class="etiqueta-seguimiento {{ c.seguimiento_clase }}">{{ c.seguimiento_texto }}</span></td>
         <td>{{ c.ultimo_contacto or '—' }}</td>
         <td style="text-align:right;"><a class="btn btn-sm" href="{{ url_for('contacto_detalle', contacto_id=c.id) }}">Ver</a></td>
       </tr>
@@ -109,5 +110,13 @@ if (buscadorContactos) {
     if (e.key === 'Enter') e.preventDefault();
   });
 }
+
+// Toda la fila lleva al detalle del contacto (no solo el boton "Ver").
+document.querySelectorAll('.fila-clicable').forEach(fila => {
+  fila.addEventListener('click', (e) => {
+    if (e.target.closest('a, button')) return;
+    window.location.href = fila.dataset.href;
+  });
+});
 </script>
 {% endblock %}

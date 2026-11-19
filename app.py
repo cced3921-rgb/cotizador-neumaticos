@@ -922,14 +922,43 @@ def inbox():
     return render_template("inbox.html", conversaciones=conversaciones)
 
 
+def _seguimiento_contacto(fila, hace_3_dias):
+    """Resume en una frase corta en que va el contacto, para verlo de un
+    vistazo en la lista sin tener que entrar a cada uno: si todavia no se le
+    ha cotizado, si esta esperando respuesta y hace cuanto, o si ya se le
+    hizo seguimiento reciente. No toca el 'estado' del pipeline, solo lo
+    explica mejor."""
+    estado = fila["estado"]
+    if estado == "vendido":
+        return "Vendido", "seguimiento-ok"
+    if estado == "perdido":
+        return "Perdido", "seguimiento-perdido"
+    if fila["num_cotizaciones"] == 0:
+        return "Sin cotizar todavia", "seguimiento-pendiente"
+
+    sin_respuesta = estado in ("cotizado", "negociacion") and (
+        not fila["ultimo_contacto"] or fila["ultimo_contacto"] < hace_3_dias
+    )
+    if sin_respuesta:
+        return "Sin respuesta hace 3+ dias", "seguimiento-alerta"
+    if estado == "negociacion":
+        return "En negociacion", "seguimiento-ok"
+    return "Cotizado, esperando respuesta", "seguimiento-pendiente"
+
+
 @app.route("/contactos")
 def contactos():
     estado = request.args.get("estado", "")
     q = request.args.get("q", "").strip()
     vendedor_id = _vendedor_actual_id()
+    hace_3_dias = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
     conn = database.get_connection()
     try:
-        sql = "SELECT * FROM contactos WHERE 1=1"
+        sql = (
+            "SELECT c.*, "
+            "(SELECT COUNT(*) FROM cotizaciones WHERE contacto_id = c.id) AS num_cotizaciones "
+            "FROM contactos c WHERE 1=1 "
+        )
         params = []
         if vendedor_id:
             sql += " AND vendedor_id = ?"
@@ -941,10 +970,17 @@ def contactos():
             sql += " AND (nombre LIKE ? OR telefono LIKE ?)"
             params.extend([f"%{q}%", f"%{q}%"])
         sql += " ORDER BY COALESCE(ultimo_contacto, creado_en) DESC"
-        lista = conn.execute(sql, params).fetchall()
+        filas = conn.execute(sql, params).fetchall()
         resumen = obtener_resumen_crm(conn, vendedor_id)
     finally:
         conn.close()
+
+    lista = []
+    for fila in filas:
+        c = dict(fila)
+        c["seguimiento_texto"], c["seguimiento_clase"] = _seguimiento_contacto(fila, hace_3_dias)
+        lista.append(c)
+
     return render_template(
         "contactos.html", contactos=lista, estado=estado, q=q, estados=ESTADOS_VALIDOS, resumen=resumen
     )
@@ -1164,12 +1200,15 @@ def contacto_detalle(contacto_id):
             ).fetchall()
     finally:
         conn.close()
+    ajustes = obtener_ajustes()
+    wa_link = whatsapp.construir_link_wa(contacto["telefono"], "", ajustes["prefijo_telefono"])
     return render_template(
         "contacto_detalle.html",
         contacto=contacto,
         cotizaciones=cotizaciones,
         items_por_cotizacion=items_por_cotizacion,
         estados=ESTADOS_VALIDOS,
+        wa_link=wa_link,
     )
 
 
@@ -1361,11 +1400,13 @@ def api_venta_manual():
         else:
             fecha = hoy_hora
 
+        canal_venta = (datos.get("canal_venta") or "").strip() or None
+
         mensaje = f"Venta registrada manualmente para {contacto['nombre']}."
         cursor = conn.execute(
-            "INSERT INTO cotizaciones (contacto_id, fecha, tipo, subtotal, iva, iva_manual, total, mensaje_texto) "
-            "VALUES (?, ?, 'proforma', ?, ?, ?, ?, ?)",
-            (contacto_id, fecha, totales["subtotal"], totales["iva"], int(totales["iva_manual"]), totales["total"], mensaje),
+            "INSERT INTO cotizaciones (contacto_id, fecha, tipo, subtotal, iva, iva_manual, total, mensaje_texto, canal_venta) "
+            "VALUES (?, ?, 'proforma', ?, ?, ?, ?, ?, ?)",
+            (contacto_id, fecha, totales["subtotal"], totales["iva"], int(totales["iva_manual"]), totales["total"], mensaje, canal_venta),
         )
         cotizacion_id = cursor.lastrowid
         for it in items:
@@ -1411,7 +1452,8 @@ def api_venta_manual():
 
         registrar_actividad(
             conn, "cotizacion",
-            f"Registro una venta manual para {contacto['nombre']} por ${totales['total']:,.2f}",
+            f"Registro una venta manual para {contacto['nombre']} por ${totales['total']:,.2f}"
+            + (f" ({canal_venta})" if canal_venta else ""),
         )
         conn.commit()
     finally:

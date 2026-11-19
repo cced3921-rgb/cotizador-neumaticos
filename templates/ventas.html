@@ -45,6 +45,7 @@
         <th>Cliente</th>
         {% if es_admin %}<th>Vendedor</th>{% endif %}
         <th>Tipo</th>
+        <th>Canal</th>
         <th>Total</th>
         <th></th>
       </tr>
@@ -57,6 +58,7 @@
         <td><a href="{{ url_for('contacto_detalle', contacto_id=p.contacto_id) }}">{{ p.cliente_nombre }}</a><br><small style="color:var(--texto-suave);">{{ p.cliente_telefono }}</small></td>
         {% if es_admin %}<td>{{ p.vendedor_nombre or '—' }}</td>{% endif %}
         <td><span class="badge {{ 'badge-vendido' if p.tipo == 'proforma' else 'badge-nuevo' }}">{{ 'Proforma' if p.tipo == 'proforma' else 'Cotizacion' }}</span></td>
+        <td>{{ p.canal_venta or '—' }}</td>
         <td>{{ "${:.2f}".format(p.total) if p.tipo == 'proforma' else '—' }}</td>
         <td style="text-align:right; white-space:nowrap;">
           {% if p.pdf_archivo %}

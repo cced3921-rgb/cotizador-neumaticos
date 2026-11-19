@@ -5,6 +5,13 @@
   <a class="btn" href="{{ url_for('contactos') }}">&larr; Volver a contactos</a>
 </div>
 
+<div class="panel barra-acciones-contacto">
+  <a class="btn btn-primario" href="{{ wa_link }}" target="_blank">💬 WhatsApp</a>
+  <a class="btn" href="tel:{{ contacto.telefono }}">📞 Llamar</a>
+  <a class="btn" href="{{ url_for('cotizar') }}?contacto_id={{ contacto.id }}">🧾 Nueva cotizacion</a>
+  <a class="btn" href="{{ url_for('venta_manual') }}?contacto_id={{ contacto.id }}">✔ Registrar venta</a>
+</div>
+
 <div class="grid-cotizar">
   <div>
     <div class="panel">
@@ -66,10 +73,6 @@
           <button class="btn btn-primario" type="submit">Guardar</button>
         </div>
       </form>
-
-      <div style="margin-top:14px;">
-        <a class="btn" href="{{ url_for('cotizar') }}?contacto_id={{ contacto.id }}">Nueva cotizacion para este contacto</a>
-      </div>
     </div>
   </div>
 </div>

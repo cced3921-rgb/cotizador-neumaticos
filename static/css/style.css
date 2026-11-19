@@ -374,6 +374,17 @@ tbody tr:hover { background: #eef6f0; }
 .badge-vendido { background: #e4f7ec; color: #0e703b; }
 .badge-perdido { background: #f1f1f3; color: #6b7280; }
 
+.etiqueta-seguimiento { font-size: 12.5px; font-weight: 500; }
+.seguimiento-pendiente { color: var(--texto-suave); }
+.seguimiento-alerta { color: var(--rojo-marca); font-weight: 700; }
+.seguimiento-ok { color: #0e703b; }
+.seguimiento-perdido { color: #9ca3af; }
+
+.fila-clicable { cursor: pointer; }
+.fila-clicable:hover { background: var(--bg); }
+
+.barra-acciones-contacto { display: flex; gap: 10px; flex-wrap: wrap; }
+
 .grid-cotizar { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 
 .lista-productos { max-height: 60vh; overflow-y: auto; }
