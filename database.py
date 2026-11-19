@@ -111,6 +111,35 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     FOREIGN KEY (contacto_id) REFERENCES contactos(id)
 );
 
+-- Leads que ya se trajeron desde Meta (Facebook/Instagram Lead Ads), para
+-- no crear el mismo contacto dos veces si el webhook reintenta la entrega
+-- (Meta reintenta si no respondemos rapido, asi que esto es importante).
+CREATE TABLE IF NOT EXISTS leads_meta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    leadgen_id TEXT NOT NULL UNIQUE,
+    contacto_id INTEGER,
+    fecha TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scripts_venta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    titulo TEXT NOT NULL,
+    cuerpo TEXT NOT NULL,
+    orden INTEGER NOT NULL DEFAULT 0,
+    creado_en TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS seguimientos_contacto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contacto_id INTEGER NOT NULL,
+    usuario_id INTEGER,
+    usuario_nombre TEXT,
+    resultado TEXT NOT NULL,
+    nota TEXT,
+    fecha TEXT NOT NULL,
+    FOREIGN KEY (contacto_id) REFERENCES contactos(id)
+);
+
 CREATE TABLE IF NOT EXISTS mensajes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversacion_id INTEGER NOT NULL,
@@ -150,7 +179,67 @@ AJUSTES_POR_DEFECTO = {
         "Los valores indicados en esta proforma incluyen IVA. Garantia de "
         "fabrica. Escribenos para coordinar el envio y la entrega."
     ),
+    # Conexion con Meta (formularios de clientes potenciales de Facebook
+    # e Instagram) - vacios hasta que el admin los configure desde Ajustes.
+    "meta_verify_token": "",
+    "meta_app_secret": "",
+    "meta_page_access_token": "",
+    "meta_page_id": "",
 }
+
+# Scripts de venta listos para copiar y pegar desde el detalle de cada
+# contacto - se insertan solo la primera vez (tabla vacia); despues el
+# admin los edita, borra o agrega mas desde Ajustes sin que el codigo los
+# vuelva a tocar. "{nombre}" y "{negocio}" se reemplazan al mostrarlos.
+SCRIPTS_VENTA_POR_DEFECTO = [
+    (
+        "Bienvenida - contacto nuevo",
+        "Hola {nombre} \U0001F44B, soy de {negocio}. Gracias por escribirnos "
+        "- cuentame que medida o modelo de llanta necesitas (o la marca y "
+        "modelo de tu carro) y te paso cotizacion al toque.",
+    ),
+    (
+        "Contactos de base / reactivacion",
+        "Hola {nombre} \U0001F44B, te escribimos de {negocio}. Tenemos "
+        "promociones vigentes en llantas y queriamos saber si estas "
+        "necesitando cambiar alguna pronto. Cuentame la medida de tu "
+        "vehiculo y te envio precios sin compromiso.",
+    ),
+    (
+        "Seguimiento - no ha respondido",
+        "Hola {nombre}, ¿pudiste revisar la cotizacion que te enviamos? "
+        "Quedo atento por si tienes alguna pregunta o si quieres que "
+        "ajustemos algo.",
+    ),
+    (
+        "Despues de enviar cotizacion",
+        "Listo {nombre}, ahi tienes tu cotizacion. Los precios incluyen "
+        "IVA y garantia de fabrica. Cualquier duda con gusto te ayudo.",
+    ),
+    (
+        "Cierre / empujar la decision",
+        "{nombre}, si gustas podemos reservarte el precio de hoy y "
+        "coordinar la entrega/instalacion. ¿Seguimos con el pedido?",
+    ),
+    (
+        "Objecion de precio",
+        "Te entiendo {nombre}. Trabajamos con marcas de distintas gamas, "
+        "asi que podemos buscar una opcion que se ajuste mejor a tu "
+        "presupuesto sin bajar la calidad ni la garantia. ¿Que rango de "
+        "precio manejas?",
+    ),
+    (
+        "No contesta - segundo intento",
+        "Hola {nombre}, de nuevo nosotros \U0001F60A - seguimos con stock "
+        "disponible de la medida que necesitas. Avisanos si todavia te "
+        "interesa.",
+    ),
+    (
+        "Post-venta / agradecimiento",
+        "Gracias por tu compra {nombre} \U0001F64C. Cualquier cosa con tus "
+        "llantas nuevas, estamos para ayudarte. ¡Que las disfrutes!",
+    ),
+]
 
 def get_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -203,6 +292,14 @@ def init_db():
             "UPDATE cotizaciones SET subtotal = total / 1.15, iva = total - (total / 1.15) "
             "WHERE subtotal = 0 AND iva = 0 AND total > 0"
         )
+        total_scripts = conn.execute("SELECT COUNT(*) FROM scripts_venta").fetchone()[0]
+        if total_scripts == 0:
+            for orden, (titulo, cuerpo) in enumerate(SCRIPTS_VENTA_POR_DEFECTO, start=1):
+                conn.execute(
+                    "INSERT INTO scripts_venta (titulo, cuerpo, orden, creado_en) VALUES (?, ?, ?, ?)",
+                    (titulo, cuerpo, orden, ahora_iso()),
+                )
+
         for clave, valor in AJUSTES_POR_DEFECTO.items():
             fila = conn.execute(
                 "SELECT 1 FROM ajustes WHERE clave = ?", (clave,)

@@ -62,7 +62,7 @@
   <div class="tabla-scroll">
   <table>
     <thead>
-      <tr><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Seguimiento</th><th>Ultimo contacto</th><th></th></tr>
+      <tr><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Como quedo</th><th>Ultimo contacto</th><th></th></tr>
     </thead>
     <tbody id="cuerpo-tabla-contactos">
       {% for c in contactos %}
@@ -70,9 +70,40 @@
         <td>{{ c.nombre }}</td>
         <td>{{ c.telefono }}</td>
         <td><span class="badge badge-{{ c.estado }}">{{ c.estado|capitalize }}</span></td>
-        <td><span class="etiqueta-seguimiento {{ c.seguimiento_clase }}">{{ c.seguimiento_texto }}</span></td>
-        <td>{{ c.ultimo_contacto or '—' }}</td>
-        <td style="text-align:right;"><a class="btn btn-sm" href="{{ url_for('contacto_detalle', contacto_id=c.id) }}">Ver</a></td>
+        <td class="celda-como-quedo">
+          {% if c.ultimo_resultado_etiqueta %}
+          <span class="etiqueta-resultado {{ c.ultimo_resultado_clase }}">{{ c.ultimo_resultado_etiqueta }}</span>
+          {% else %}
+          <span class="etiqueta-resultado resultado-neutral">Sin gestionar</span>
+          {% endif %}
+        </td>
+        <td class="celda-ultimo-contacto">{{ c.ultimo_contacto or '—' }}</td>
+        <td style="text-align:right; white-space:nowrap;">
+          <button type="button" class="btn btn-sm btn-registrar-seguimiento" data-contacto-id="{{ c.id }}">Registrar</button>
+          <a class="btn btn-sm" href="{{ url_for('contacto_detalle', contacto_id=c.id) }}">Ver</a>
+        </td>
+      </tr>
+      <tr class="fila-panel-seguimiento" id="panel-seguimiento-{{ c.id }}" hidden>
+        <td colspan="6">
+          <div class="panel-seguimiento">
+            <p class="panel-seguimiento-titulo">¿Que paso con {{ c.nombre }}?</p>
+            <div class="pildoras-resultado">
+              {% for clave, info in resultados.items() %}
+              <button type="button" class="pildora-resultado {{ info.clase }}" data-contacto-id="{{ c.id }}" data-resultado="{{ clave }}">
+                {{ info.etiqueta }}
+              </button>
+              {% endfor %}
+            </div>
+            <div class="panel-seguimiento-otro" hidden>
+              <input type="text" class="campo-nota-otro" placeholder="Escribe que paso...">
+              <button type="button" class="btn btn-sm btn-primario btn-guardar-otro">Guardar</button>
+            </div>
+            <div class="panel-seguimiento-pie">
+              <span class="panel-seguimiento-ayuda">Elija que paso con este contacto. Queda guardado en su historial y se ve en la lista del CRM.</span>
+              <a href="#" class="btn-cerrar-panel">Cerrar</a>
+            </div>
+          </div>
+        </td>
       </tr>
       {% endfor %}
     </tbody>
@@ -89,7 +120,7 @@
 <script>
 const buscadorContactos = document.getElementById('buscador-contactos');
 if (buscadorContactos) {
-  const filas = document.querySelectorAll('#cuerpo-tabla-contactos tr');
+  const filas = document.querySelectorAll('#cuerpo-tabla-contactos tr.fila-clicable');
   const avisoSinResultados = document.getElementById('aviso-sin-resultados');
 
   buscadorContactos.addEventListener('input', () => {
@@ -98,6 +129,8 @@ if (buscadorContactos) {
     filas.forEach(fila => {
       const coincide = fila.dataset.buscar.includes(texto);
       fila.style.display = coincide ? '' : 'none';
+      const panel = document.getElementById('panel-seguimiento-' + fila.querySelector('.btn-registrar-seguimiento').dataset.contactoId);
+      if (!coincide && panel) panel.hidden = true;
       if (coincide) visibles++;
     });
     if (avisoSinResultados) {
@@ -116,6 +149,79 @@ document.querySelectorAll('.fila-clicable').forEach(fila => {
   fila.addEventListener('click', (e) => {
     if (e.target.closest('a, button')) return;
     window.location.href = fila.dataset.href;
+  });
+});
+
+// --- registrar que paso con un contacto (panel desplegable por fila) ---
+function cerrarTodosLosPaneles(exceptoId) {
+  document.querySelectorAll('.fila-panel-seguimiento').forEach(panel => {
+    if (panel.id !== 'panel-seguimiento-' + exceptoId) panel.hidden = true;
+  });
+}
+
+document.querySelectorAll('.btn-registrar-seguimiento').forEach(boton => {
+  boton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const id = boton.dataset.contactoId;
+    const panel = document.getElementById('panel-seguimiento-' + id);
+    const yaAbierto = !panel.hidden;
+    cerrarTodosLosPaneles(id);
+    panel.hidden = yaAbierto;
+  });
+});
+
+document.querySelectorAll('.btn-cerrar-panel').forEach(boton => {
+  boton.addEventListener('click', (e) => {
+    e.preventDefault();
+    boton.closest('.fila-panel-seguimiento').hidden = true;
+  });
+});
+
+async function registrarSeguimiento(contactoId, resultado, nota, boton) {
+  boton.disabled = true;
+  try {
+    const resp = await fetch(`/api/contactos/${contactoId}/seguimiento`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resultado, nota }),
+    });
+    const datos = await resp.json();
+    if (!resp.ok) {
+      alert(datos.error || 'No se pudo registrar.');
+      boton.disabled = false;
+      return;
+    }
+    location.reload();
+  } catch (err) {
+    alert('Error de conexion. Intenta de nuevo.');
+    boton.disabled = false;
+  }
+}
+
+document.querySelectorAll('.pildora-resultado').forEach(pildora => {
+  pildora.addEventListener('click', () => {
+    const id = pildora.dataset.contactoId;
+    const resultado = pildora.dataset.resultado;
+    if (resultado === 'otro') {
+      const panel = pildora.closest('.panel-seguimiento');
+      panel.querySelector('.panel-seguimiento-otro').hidden = false;
+      panel.querySelector('.campo-nota-otro').focus();
+      return;
+    }
+    registrarSeguimiento(id, resultado, '', pildora);
+  });
+});
+
+document.querySelectorAll('.btn-guardar-otro').forEach(boton => {
+  boton.addEventListener('click', () => {
+    const panel = boton.closest('.fila-panel-seguimiento');
+    const id = panel.id.replace('panel-seguimiento-', '');
+    const nota = panel.querySelector('.campo-nota-otro').value.trim();
+    if (!nota) {
+      panel.querySelector('.campo-nota-otro').focus();
+      return;
+    }
+    registrarSeguimiento(id, 'otro', nota, boton);
   });
 });
 </script>

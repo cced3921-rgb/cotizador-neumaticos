@@ -385,6 +385,87 @@ tbody tr:hover { background: #eef6f0; }
 
 .barra-acciones-contacto { display: flex; gap: 10px; flex-wrap: wrap; }
 
+/* --- "Como quedo" (resultado del ultimo seguimiento) en el CRM --- */
+.etiqueta-resultado { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.resultado-neutral { background: #f1f1f3; color: #6b7280; }
+.resultado-alerta { background: #fff3d9; color: #a86a00; }
+.resultado-ok { background: #e4f7ec; color: #0e703b; }
+.resultado-perdido { background: #fdeaea; color: var(--rojo-marca-hover); }
+
+.fila-panel-seguimiento td { padding: 0; border-bottom: 1px solid var(--borde); }
+.panel-seguimiento { background: var(--bg); padding: 16px; }
+.panel-seguimiento-titulo { margin: 0 0 10px; font-weight: 600; }
+.pildoras-resultado { display: flex; flex-wrap: wrap; gap: 8px; }
+.pildora-resultado {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  background: var(--panel);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.pildora-resultado:hover { transform: translateY(-1px); }
+.pildora-resultado.resultado-neutral { color: #6b7280; border-color: #d8dadf; }
+.pildora-resultado.resultado-alerta { color: #a86a00; border-color: #f0cb84; }
+.pildora-resultado.resultado-ok { color: #0e703b; border-color: #a9dfc0; }
+.pildora-resultado.resultado-perdido { color: var(--rojo-marca-hover); border-color: #f3b8b8; }
+.panel-seguimiento-otro { display: flex; gap: 8px; margin-top: 12px; max-width: 420px; }
+.panel-seguimiento-otro[hidden] { display: none; }
+.panel-seguimiento-otro input { flex: 1; }
+.panel-seguimiento-pie { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 10px; flex-wrap: wrap; }
+.panel-seguimiento-ayuda { font-size: 12px; color: var(--texto-suave); }
+.btn-cerrar-panel { font-size: 13px; color: var(--texto-suave); text-decoration: underline; cursor: pointer; }
+
+.historial-seguimientos { margin-top: 14px; border-top: 1px solid var(--borde); padding-top: 10px; }
+.historial-seguimiento-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.historial-seguimiento-info { color: var(--texto-suave); }
+
+.script-venta-item {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-md, 10px);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+.script-venta-item summary { cursor: pointer; font-weight: 600; }
+
+.grid-scripts-venta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.tarjeta-script {
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-md, 10px);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+}
+.tarjeta-script-titulo { font-weight: 700; font-size: 13px; color: var(--rojo-marca); }
+.tarjeta-script-texto { font-size: 13px; margin: 0; flex: 1; white-space: pre-wrap; }
+.tarjeta-script-botones { display: flex; gap: 6px; margin-top: 4px; }
+
+.estado-conexion-meta {
+  display: inline-block;
+  padding: 5px 12px;
+  border-radius: var(--radio-pill, 999px);
+  font-size: 13px;
+  font-weight: 600;
+}
+.estado-conexion-meta.conectado { background: #e4f7ec; color: #0e703b; }
+.estado-conexion-meta.no-conectado { background: #f1f1f3; color: #6b7280; }
+
 .grid-cotizar { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 
 .lista-productos { max-height: 60vh; overflow-y: auto; }

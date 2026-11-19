@@ -2,9 +2,11 @@
 WhatsApp en el menor numero de clics posible, con catalogo, generacion
 automatica de imagenes y un CRM simple de contactos."""
 import os
+import secrets
 import socket
 import threading
 import time
+import urllib.error
 import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,6 +20,7 @@ from utils import auth
 from utils import importar_catalogo as importador
 from utils import importar_contactos as importador_contactos
 from utils import imagenes as img_utils
+from utils import meta_leads
 from utils import pdf_cotizacion
 from utils import portapapeles
 from utils import whatsapp
@@ -620,6 +623,26 @@ NOMBRES_ESTADOS = {
     "perdido": "Perdido",
 }
 
+# "Como quedo" cada vez que se gestiona un contacto - un registro rapido de
+# que paso en ese intento de contacto, aparte del estado general del
+# pipeline. Cada opcion tiene una clase CSS (para pintarla de color) y,
+# cuando corresponde, el estado del pipeline al que mueve el contacto
+# automaticamente (las demas opciones no tocan el estado - son solo
+# bitacora de seguimiento, el vendedor decide el estado aparte).
+RESULTADOS_SEGUIMIENTO = {
+    "le_escribi": {"etiqueta": "Le escribi", "clase": "resultado-neutral", "estado": None},
+    "no_contesta": {"etiqueta": "No contesta", "clase": "resultado-alerta", "estado": None},
+    "respondio": {"etiqueta": "Respondio", "clase": "resultado-ok", "estado": None},
+    "interesado": {"etiqueta": "Esta interesado", "clase": "resultado-ok", "estado": None},
+    "cotizado": {"etiqueta": "Cotizado", "clase": "resultado-ok", "estado": "cotizado"},
+    "contactar_despues": {"etiqueta": "Contactar despues", "clase": "resultado-neutral", "estado": None},
+    "vendido": {"etiqueta": "Vendido", "clase": "resultado-ok", "estado": "vendido"},
+    "no_interesa": {"etiqueta": "No le interesa", "clase": "resultado-perdido", "estado": "perdido"},
+    "numero_equivocado": {"etiqueta": "Numero equivocado", "clase": "resultado-perdido", "estado": "perdido"},
+    "no_escribir": {"etiqueta": "Pidio no escribirle", "clase": "resultado-perdido", "estado": "perdido"},
+    "otro": {"etiqueta": "Otro", "clase": "resultado-neutral", "estado": None},
+}
+
 
 def _vendedor_actual_id():
     """None si es admin (ve todo); id del usuario si es vendedor (solo lo suyo)."""
@@ -922,28 +945,93 @@ def inbox():
     return render_template("inbox.html", conversaciones=conversaciones)
 
 
-def _seguimiento_contacto(fila, hace_3_dias):
-    """Resume en una frase corta en que va el contacto, para verlo de un
-    vistazo en la lista sin tener que entrar a cada uno: si todavia no se le
-    ha cotizado, si esta esperando respuesta y hace cuanto, o si ya se le
-    hizo seguimiento reciente. No toca el 'estado' del pipeline, solo lo
-    explica mejor."""
-    estado = fila["estado"]
-    if estado == "vendido":
-        return "Vendido", "seguimiento-ok"
-    if estado == "perdido":
-        return "Perdido", "seguimiento-perdido"
-    if fila["num_cotizaciones"] == 0:
-        return "Sin cotizar todavia", "seguimiento-pendiente"
+def _procesar_lead_meta(leadgen_id: str, ajustes: dict):
+    """Trae los datos reales de un lead desde la Graph API y crea (o
+    reutiliza) el contacto en el CRM. No duplica si el mismo leadgen_id ya
+    se proceso antes (Meta reintenta el webhook si tarda en responder)."""
+    conn = database.get_connection()
+    try:
+        ya_procesado = conn.execute(
+            "SELECT id FROM leads_meta WHERE leadgen_id = ?", (leadgen_id,)
+        ).fetchone()
+        if ya_procesado:
+            return
 
-    sin_respuesta = estado in ("cotizado", "negociacion") and (
-        not fila["ultimo_contacto"] or fila["ultimo_contacto"] < hace_3_dias
-    )
-    if sin_respuesta:
-        return "Sin respuesta hace 3+ dias", "seguimiento-alerta"
-    if estado == "negociacion":
-        return "En negociacion", "seguimiento-ok"
-    return "Cotizado, esperando respuesta", "seguimiento-pendiente"
+        token = ajustes.get("meta_page_access_token")
+        if not token:
+            registrar_actividad(conn, "contacto", "Llego un lead de Meta pero falta configurar el token en Ajustes")
+            conn.commit()
+            return
+
+        try:
+            datos_lead = meta_leads.obtener_datos_lead(leadgen_id, token)
+        except urllib.error.URLError as exc:
+            registrar_actividad(conn, "contacto", f"No se pudo leer un lead de Meta ({leadgen_id}): {exc}")
+            conn.commit()
+            return
+
+        nombre, telefono = meta_leads.extraer_nombre_telefono(datos_lead)
+        if not telefono:
+            registrar_actividad(conn, "contacto", f"Lead de Meta sin telefono, se omitio: {nombre}")
+            conn.commit()
+            return
+
+        existente = conn.execute("SELECT id FROM contactos WHERE telefono = ?", (telefono,)).fetchone()
+        if existente:
+            contacto_id = existente["id"]
+        else:
+            cursor = conn.execute(
+                "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en) "
+                "VALUES (?, ?, 'facebook_ads', 'nuevo', ?)",
+                (nombre, telefono, database.ahora_iso()),
+            )
+            contacto_id = cursor.lastrowid
+            registrar_actividad(conn, "contacto", f"Nuevo lead automatico de Facebook/Instagram: {nombre}")
+
+        conn.execute(
+            "INSERT INTO leads_meta (leadgen_id, contacto_id, fecha) VALUES (?, ?, ?)",
+            (leadgen_id, contacto_id, database.ahora_iso()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@app.route("/webhooks/meta", methods=["GET"])
+def meta_webhook_verificar():
+    """Meta llama a esto una sola vez, al momento de activar el webhook en
+    su panel, para confirmar que esta URL es realmente nuestra."""
+    ajustes = obtener_ajustes()
+    modo = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge", "")
+    if modo == "subscribe" and token and token == ajustes.get("meta_verify_token"):
+        return challenge, 200
+    return "Token de verificacion invalido.", 403
+
+
+@app.route("/webhooks/meta", methods=["POST"])
+def meta_webhook_recibir():
+    """Aqui llega cada lead nuevo de un formulario de Facebook/Instagram en
+    tiempo real. Hay que responder rapido (Meta reintenta si tarda), asi
+    que el trabajo pesado (leer el lead completo) se hace sincrono pero
+    simple - el volumen de una distribuidora no justifica una cola aparte."""
+    ajustes = obtener_ajustes()
+    app_secret = ajustes.get("meta_app_secret")
+    if app_secret:
+        firma = request.headers.get("X-Hub-Signature-256", "")
+        if not meta_leads.firma_valida(request.get_data(), firma, app_secret):
+            return jsonify({"error": "Firma invalida."}), 403
+
+    datos = request.get_json(force=True, silent=True) or {}
+    for entrada in datos.get("entry", []):
+        for cambio in entrada.get("changes", []):
+            if cambio.get("field") != "leadgen":
+                continue
+            leadgen_id = (cambio.get("value") or {}).get("leadgen_id")
+            if leadgen_id:
+                _procesar_lead_meta(str(leadgen_id), ajustes)
+    return jsonify({"ok": True})
 
 
 @app.route("/contactos")
@@ -951,12 +1039,14 @@ def contactos():
     estado = request.args.get("estado", "")
     q = request.args.get("q", "").strip()
     vendedor_id = _vendedor_actual_id()
-    hace_3_dias = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S")
     conn = database.get_connection()
     try:
         sql = (
             "SELECT c.*, "
-            "(SELECT COUNT(*) FROM cotizaciones WHERE contacto_id = c.id) AS num_cotizaciones "
+            "(SELECT resultado FROM seguimientos_contacto WHERE contacto_id = c.id "
+            " ORDER BY fecha DESC LIMIT 1) AS ultimo_resultado, "
+            "(SELECT nota FROM seguimientos_contacto WHERE contacto_id = c.id "
+            " ORDER BY fecha DESC LIMIT 1) AS ultimo_resultado_nota "
             "FROM contactos c WHERE 1=1 "
         )
         params = []
@@ -978,11 +1068,15 @@ def contactos():
     lista = []
     for fila in filas:
         c = dict(fila)
-        c["seguimiento_texto"], c["seguimiento_clase"] = _seguimiento_contacto(fila, hace_3_dias)
+        info_resultado = RESULTADOS_SEGUIMIENTO.get(c["ultimo_resultado"])
+        c["ultimo_resultado_etiqueta"] = info_resultado["etiqueta"] if info_resultado else None
+        c["ultimo_resultado_clase"] = info_resultado["clase"] if info_resultado else None
         lista.append(c)
 
     return render_template(
-        "contactos.html", contactos=lista, estado=estado, q=q, estados=ESTADOS_VALIDOS, resumen=resumen
+        "contactos.html",
+        contactos=lista, estado=estado, q=q, estados=ESTADOS_VALIDOS, resumen=resumen,
+        resultados=RESULTADOS_SEGUIMIENTO,
     )
 
 
@@ -1061,6 +1155,64 @@ def api_contacto_actualizar_estado(contacto_id):
     finally:
         conn.close()
     return jsonify({"ok": True})
+
+
+@app.route("/api/contactos/<int:contacto_id>/seguimiento", methods=["POST"])
+def api_contacto_registrar_seguimiento(contacto_id):
+    """Registra que paso en un intento de contacto (le escribi, no contesta,
+    respondio, etc.) - queda en el historial del contacto y se ve de un
+    vistazo en la lista del CRM como 'Como quedo'. Algunos resultados mueven
+    el estado del pipeline de una vez (vendido, perdido); el resto es solo
+    bitacora, no cambia el estado."""
+    datos = request.get_json(force=True) or {}
+    resultado = datos.get("resultado")
+    info = RESULTADOS_SEGUIMIENTO.get(resultado)
+    if not info:
+        return jsonify({"error": "Resultado invalido."}), 400
+    nota = (datos.get("nota") or "").strip()
+    if resultado == "otro" and not nota:
+        return jsonify({"error": "Escribe que paso."}), 400
+
+    conn = database.get_connection()
+    try:
+        contacto = conn.execute("SELECT * FROM contactos WHERE id = ?", (contacto_id,)).fetchone()
+        if not contacto:
+            return jsonify({"error": "Ese contacto no existe."}), 404
+        if not auth.es_admin() and contacto["vendedor_id"] != g.usuario["id"]:
+            return jsonify({"error": "Ese contacto no es tuyo."}), 403
+
+        ahora = database.ahora_iso()
+        usuario = g.get("usuario")
+        conn.execute(
+            "INSERT INTO seguimientos_contacto (contacto_id, usuario_id, usuario_nombre, resultado, nota, fecha) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (contacto_id, usuario["id"] if usuario else None, usuario["nombre"] if usuario else "Sistema",
+             resultado, nota, ahora),
+        )
+
+        nuevo_estado = info["estado"]
+        if nuevo_estado and nuevo_estado != contacto["estado"]:
+            if nuevo_estado == "vendido" and contacto["estado"] != "vendido":
+                conn.execute(
+                    "UPDATE contactos SET estado = ?, ultimo_contacto = ?, fecha_venta = ? WHERE id = ?",
+                    (nuevo_estado, ahora, ahora, contacto_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE contactos SET estado = ?, ultimo_contacto = ? WHERE id = ?",
+                    (nuevo_estado, ahora, contacto_id),
+                )
+        else:
+            conn.execute("UPDATE contactos SET ultimo_contacto = ? WHERE id = ?", (ahora, contacto_id))
+
+        descripcion = f"Registro con {contacto['nombre']}: {info['etiqueta']}"
+        if nota:
+            descripcion += f" ({nota})"
+        registrar_actividad(conn, "contacto", descripcion)
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "etiqueta": info["etiqueta"], "clase": info["clase"]})
 
 
 @app.route("/api/cotizaciones/<int:cotizacion_id>/eliminar", methods=["POST"])
@@ -1198,17 +1350,40 @@ def contacto_detalle(contacto_id):
             items_por_cotizacion[c["id"]] = conn.execute(
                 "SELECT * FROM cotizacion_items WHERE cotizacion_id = ?", (c["id"],)
             ).fetchall()
+        seguimientos = conn.execute(
+            "SELECT * FROM seguimientos_contacto WHERE contacto_id = ? ORDER BY fecha DESC", (contacto_id,)
+        ).fetchall()
+        scripts_crudos = conn.execute("SELECT * FROM scripts_venta ORDER BY orden").fetchall()
     finally:
         conn.close()
     ajustes = obtener_ajustes()
     wa_link = whatsapp.construir_link_wa(contacto["telefono"], "", ajustes["prefijo_telefono"])
+
+    # Los scripts se guardan con {nombre}/{negocio} tal cual, para que sirvan
+    # para cualquier contacto; aqui se personalizan ya con los datos reales
+    # de este contacto, listos para copiar y pegar sin editar nada a mano.
+    scripts = []
+    for s in scripts_crudos:
+        texto = s["cuerpo"].replace("{nombre}", contacto["nombre"]).replace(
+            "{negocio}", ajustes["nombre_negocio"]
+        )
+        scripts.append({
+            "id": s["id"],
+            "titulo": s["titulo"],
+            "cuerpo": texto,
+            "wa_link": whatsapp.construir_link_wa(contacto["telefono"], texto, ajustes["prefijo_telefono"]),
+        })
+
     return render_template(
         "contacto_detalle.html",
         contacto=contacto,
         cotizaciones=cotizaciones,
         items_por_cotizacion=items_por_cotizacion,
+        seguimientos=seguimientos,
+        resultados=RESULTADOS_SEGUIMIENTO,
         estados=ESTADOS_VALIDOS,
         wa_link=wa_link,
+        scripts=scripts,
     )
 
 
@@ -1762,7 +1937,100 @@ def ajustes_vista():
         flash("Ajustes guardados. Se regeneraron las imagenes del catalogo.", "ok")
         return redirect(url_for("ajustes_vista"))
 
-    return render_template("ajustes.html")
+    ajustes_actuales = obtener_ajustes()
+    if not ajustes_actuales.get("meta_verify_token"):
+        database.guardar_ajustes({"meta_verify_token": secrets.token_urlsafe(24)})
+
+    conn = database.get_connection()
+    try:
+        scripts = conn.execute("SELECT * FROM scripts_venta ORDER BY orden").fetchall()
+    finally:
+        conn.close()
+    webhook_url = request.url_root.rstrip("/") + url_for("meta_webhook_recibir")
+    return render_template("ajustes.html", scripts=scripts, webhook_url=webhook_url)
+
+
+@app.route("/ajustes/meta", methods=["POST"])
+@auth.requiere_admin
+def ajustes_meta_guardar():
+    database.guardar_ajustes({
+        "meta_app_secret": request.form.get("meta_app_secret", "").strip(),
+        "meta_page_access_token": request.form.get("meta_page_access_token", "").strip(),
+        "meta_page_id": request.form.get("meta_page_id", "").strip(),
+    })
+    conn = database.get_connection()
+    try:
+        registrar_actividad(conn, "ajustes", "Actualizo la conexion con Meta (Lead Ads)")
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Conexion con Meta guardada.", "ok")
+    return redirect(url_for("ajustes_vista"))
+
+
+@app.route("/ajustes/meta/regenerar-token", methods=["POST"])
+@auth.requiere_admin
+def ajustes_meta_regenerar_token():
+    database.guardar_ajustes({"meta_verify_token": secrets.token_urlsafe(24)})
+    flash("Token de verificacion regenerado - actualizalo tambien en el panel de Meta.", "ok")
+    return redirect(url_for("ajustes_vista"))
+
+
+@app.route("/ajustes/scripts/nuevo", methods=["POST"])
+@auth.requiere_admin
+def script_venta_nuevo():
+    titulo = request.form.get("titulo", "").strip()
+    cuerpo = request.form.get("cuerpo", "").strip()
+    if not titulo or not cuerpo:
+        flash("El titulo y el texto del script son obligatorios.", "error")
+        return redirect(url_for("ajustes_vista"))
+    conn = database.get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO scripts_venta (titulo, cuerpo, orden, creado_en) "
+            "VALUES (?, ?, (SELECT COALESCE(MAX(orden), 0) + 1 FROM scripts_venta), ?)",
+            (titulo, cuerpo, database.ahora_iso()),
+        )
+        registrar_actividad(conn, "ajustes", f"Agrego el script de venta '{titulo}'")
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Script agregado.", "ok")
+    return redirect(url_for("ajustes_vista"))
+
+
+@app.route("/ajustes/scripts/<int:script_id>/editar", methods=["POST"])
+@auth.requiere_admin
+def script_venta_editar(script_id):
+    titulo = request.form.get("titulo", "").strip()
+    cuerpo = request.form.get("cuerpo", "").strip()
+    if not titulo or not cuerpo:
+        flash("El titulo y el texto del script son obligatorios.", "error")
+        return redirect(url_for("ajustes_vista"))
+    conn = database.get_connection()
+    try:
+        conn.execute(
+            "UPDATE scripts_venta SET titulo = ?, cuerpo = ? WHERE id = ?",
+            (titulo, cuerpo, script_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Script actualizado.", "ok")
+    return redirect(url_for("ajustes_vista"))
+
+
+@app.route("/ajustes/scripts/<int:script_id>/eliminar", methods=["POST"])
+@auth.requiere_admin
+def script_venta_eliminar(script_id):
+    conn = database.get_connection()
+    try:
+        conn.execute("DELETE FROM scripts_venta WHERE id = ?", (script_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Script eliminado.", "ok")
+    return redirect(url_for("ajustes_vista"))
 
 
 # ---------------------------------------------------------------- usuarios --

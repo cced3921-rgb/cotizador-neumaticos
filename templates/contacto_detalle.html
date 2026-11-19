@@ -12,6 +12,29 @@
   <a class="btn" href="{{ url_for('venta_manual') }}?contacto_id={{ contacto.id }}">✔ Registrar venta</a>
 </div>
 
+{% if scripts %}
+<div class="panel">
+  <details open>
+    <summary style="cursor:pointer; font-weight:600;">💡 Scripts listos para copiar y pegar</summary>
+    <div class="grid-scripts-venta">
+      {% for s in scripts %}
+      <div class="tarjeta-script">
+        <div class="tarjeta-script-titulo">{{ s.titulo }}</div>
+        <p class="tarjeta-script-texto">{{ s.cuerpo }}</p>
+        <div class="tarjeta-script-botones">
+          <button type="button" class="btn btn-sm btn-copiar-script" data-texto="{{ s.cuerpo }}">📋 Copiar</button>
+          <a class="btn btn-sm" href="{{ s.wa_link }}" target="_blank">💬 Enviar</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <p style="font-size:12px; color:var(--texto-suave); margin-top:10px; margin-bottom:0;">
+      Edita o agrega mas scripts desde <a href="{{ url_for('ajustes_vista') }}">Ajustes</a>.
+    </p>
+  </details>
+</div>
+{% endif %}
+
 <div class="grid-cotizar">
   <div>
     <div class="panel">
@@ -53,6 +76,37 @@
 
   <div>
     <div class="panel">
+      <h3 style="margin-top:0;">¿Que paso con este contacto?</h3>
+      <div class="pildoras-resultado">
+        {% for clave, info in resultados.items() %}
+        <button type="button" class="pildora-resultado {{ info.clase }}" data-resultado="{{ clave }}">
+          {{ info.etiqueta }}
+        </button>
+        {% endfor %}
+      </div>
+      <div class="panel-seguimiento-otro" hidden>
+        <input type="text" class="campo-nota-otro" placeholder="Escribe que paso...">
+        <button type="button" class="btn btn-sm btn-primario btn-guardar-otro">Guardar</button>
+      </div>
+
+      {% if seguimientos %}
+      <div class="historial-seguimientos">
+        {% for s in seguimientos %}
+        <div class="historial-seguimiento-item">
+          <span class="etiqueta-resultado {{ resultados[s.resultado].clase if s.resultado in resultados else 'resultado-neutral' }}">
+            {{ resultados[s.resultado].etiqueta if s.resultado in resultados else s.resultado }}
+          </span>
+          <span class="historial-seguimiento-info">
+            {{ s.fecha[:16] }} · {{ s.usuario_nombre }}
+            {% if s.nota %} — {{ s.nota }}{% endif %}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
       <h3 style="margin-top:0;">Datos del contacto</h3>
       <p style="font-size:14px;"><strong>Telefono:</strong> {{ contacto.telefono }}<br>
       <strong>Origen:</strong> {{ contacto.origen or '—' }}<br>
@@ -80,6 +134,66 @@
 
 {% block scripts %}
 <script>
+const CONTACTO_ID = {{ contacto.id }};
+
+async function registrarSeguimiento(resultado, nota, boton) {
+  boton.disabled = true;
+  try {
+    const resp = await fetch(`/api/contactos/${CONTACTO_ID}/seguimiento`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resultado, nota }),
+    });
+    const datos = await resp.json();
+    if (!resp.ok) {
+      alert(datos.error || 'No se pudo registrar.');
+      boton.disabled = false;
+      return;
+    }
+    location.reload();
+  } catch (err) {
+    alert('Error de conexion. Intenta de nuevo.');
+    boton.disabled = false;
+  }
+}
+
+document.querySelectorAll('.pildora-resultado').forEach(pildora => {
+  pildora.addEventListener('click', () => {
+    const resultado = pildora.dataset.resultado;
+    if (resultado === 'otro') {
+      const panelOtro = document.querySelector('.panel-seguimiento-otro');
+      panelOtro.hidden = false;
+      panelOtro.querySelector('.campo-nota-otro').focus();
+      return;
+    }
+    registrarSeguimiento(resultado, '', pildora);
+  });
+});
+
+document.querySelector('.btn-guardar-otro').addEventListener('click', () => {
+  const panelOtro = document.querySelector('.panel-seguimiento-otro');
+  const nota = panelOtro.querySelector('.campo-nota-otro').value.trim();
+  const boton = panelOtro.querySelector('.btn-guardar-otro');
+  if (!nota) {
+    panelOtro.querySelector('.campo-nota-otro').focus();
+    return;
+  }
+  registrarSeguimiento('otro', nota, boton);
+});
+
+document.querySelectorAll('.btn-copiar-script').forEach(boton => {
+  const textoOriginal = boton.textContent;
+  boton.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(boton.dataset.texto);
+      boton.textContent = '✔ Copiado';
+    } catch (err) {
+      boton.textContent = 'No se pudo copiar';
+    }
+    setTimeout(() => { boton.textContent = textoOriginal; }, 1500);
+  });
+});
+
 document.querySelectorAll('.btn-eliminar-cotizacion').forEach(boton => {
   boton.addEventListener('click', async () => {
     if (!confirm('¿Eliminar esta cotizacion? Tambien se borra el PDF. Esta accion no se puede deshacer.')) return;

@@ -100,4 +100,110 @@
     </div>
   </form>
 </div>
+
+<div class="panel" style="max-width: 680px;">
+  <h3 style="margin-top:0;">Scripts de venta</h3>
+  <p style="font-size:13px; color:var(--texto-suave); margin-top:-6px;">
+    Mensajes listos para copiar y pegar, visibles al abrir cualquier contacto (bienvenida, seguimiento,
+    cierre, etc.). Usa <code>{nombre}</code> para el nombre del contacto y <code>{negocio}</code> para el
+    nombre del negocio — se reemplazan solos al mostrarlos.
+  </p>
+
+  {% for s in scripts %}
+  <details class="script-venta-item">
+    <summary>{{ s.titulo }}</summary>
+    <form method="post" action="{{ url_for('script_venta_editar', script_id=s.id) }}" style="margin-top:10px;">
+      <label>Titulo</label>
+      <input type="text" name="titulo" value="{{ s.titulo }}" required>
+      <div style="margin-top:8px;">
+        <label>Texto</label>
+        <textarea name="cuerpo" rows="3" required>{{ s.cuerpo }}</textarea>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px;">
+        <button class="btn btn-sm btn-primario" type="submit">Guardar</button>
+        <button class="btn btn-sm btn-peligro" type="submit" formaction="{{ url_for('script_venta_eliminar', script_id=s.id) }}"
+          onclick="return confirm('¿Eliminar este script? Esta accion no se puede deshacer.');">Eliminar</button>
+      </div>
+    </form>
+  </details>
+  {% endfor %}
+  {% if not scripts %}
+  <div class="vacio">Todavia no hay scripts de venta.</div>
+  {% endif %}
+
+  <details class="script-venta-item" style="margin-top:14px;">
+    <summary>+ Agregar script nuevo</summary>
+    <form method="post" action="{{ url_for('script_venta_nuevo') }}" style="margin-top:10px;">
+      <label>Titulo</label>
+      <input type="text" name="titulo" placeholder="Ej. Seguimiento 3 dias despues" required>
+      <div style="margin-top:8px;">
+        <label>Texto</label>
+        <textarea name="cuerpo" rows="3" placeholder="Hola {nombre}, ..." required></textarea>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btn-sm btn-primario" type="submit">Agregar</button>
+      </div>
+    </form>
+  </details>
+</div>
+
+<div class="panel" style="max-width: 680px;">
+  <h3 style="margin-top:0;">Conexion con Meta (formularios de Facebook / Instagram)</h3>
+  <p style="font-size:13px; color:var(--texto-suave); margin-top:-6px;">
+    Cuando alguien llena un formulario de "clientes potenciales" en un anuncio de Facebook o Instagram, se
+    crea el contacto solo en el CRM (sin tener que copiarlo a mano).
+  </p>
+
+  <div class="estado-conexion-meta {{ 'conectado' if ajustes.meta_page_access_token else 'no-conectado' }}">
+    {{ '🟢 Conectado' if ajustes.meta_page_access_token else '⚪ Todavia no conectado' }}
+  </div>
+
+  <details {{ 'open' if not ajustes.meta_page_access_token else '' }} style="margin-top:12px;">
+    <summary style="cursor:pointer; font-weight:600;">Como conectarlo (pasos en Meta)</summary>
+    <ol style="font-size:13px; color:var(--texto-suave); padding-left:20px; margin-top:10px;">
+      <li>Entra a <strong>developers.facebook.com</strong>, crea una app tipo "Negocios" (o usa una que ya tengas) conectada a tu Business Manager.</li>
+      <li>Agrega el producto <strong>Webhooks</strong> a esa app.</li>
+      <li>En la configuracion del webhook pon esta URL de devolucion de llamada y el token de verificacion de abajo, y suscribete al campo <code>leadgen</code> de tu pagina de Facebook.</li>
+      <li>Genera un <strong>token de acceso de pagina</strong> con permiso <code>leads_retrieval</code> (desde el Explorador de la API Graph, con tu pagina seleccionada) y pegalo abajo.</li>
+      <li>Guarda - en cuanto alguien llene el formulario del anuncio, aparece solo en tu CRM.</li>
+    </ol>
+  </details>
+
+  <div class="form-grid" style="margin-top:14px;">
+    <div>
+      <label>URL de devolucion de llamada (Callback URL)</label>
+      <input type="text" value="{{ webhook_url }}" readonly onclick="this.select();">
+    </div>
+    <div>
+      <label>Token de verificacion (Verify token)</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" value="{{ ajustes.meta_verify_token }}" readonly onclick="this.select();">
+        <form method="post" action="{{ url_for('ajustes_meta_regenerar_token') }}"
+          onsubmit="return confirm('¿Regenerar el token? Hay que actualizarlo tambien en Meta o el webhook deja de funcionar.');">
+          <button class="btn btn-sm" type="submit" title="Regenerar">↺</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <form method="post" action="{{ url_for('ajustes_meta_guardar') }}" style="margin-top:14px;">
+    <div class="form-grid">
+      <div>
+        <label>ID de la pagina de Facebook (opcional, solo referencia)</label>
+        <input type="text" name="meta_page_id" value="{{ ajustes.meta_page_id }}">
+      </div>
+      <div>
+        <label>App Secret (de tu app en Meta for Developers)</label>
+        <input type="password" name="meta_app_secret" value="{{ ajustes.meta_app_secret }}" placeholder="Opcional pero recomendado">
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <label>Token de acceso de pagina (Page Access Token)</label>
+      <input type="password" name="meta_page_access_token" value="{{ ajustes.meta_page_access_token }}" placeholder="Pegalo aqui cuando lo generes en Meta">
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn btn-primario" type="submit">Guardar conexion con Meta</button>
+    </div>
+  </form>
+</div>
 {% endblock %}
