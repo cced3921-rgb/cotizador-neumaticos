@@ -44,6 +44,11 @@ RUTAS_PUBLICAS = {
     "servir_imagen_procesada",
     "servir_imagen_original",
     "servir_logo",
+    # Webhooks externos (Meta, etc.): quien nos escribe aqui no es una
+    # persona que inicia sesion, es el propio servidor de Meta - estas
+    # rutas se protegen con su propio token/firma, no con login.
+    "meta_webhook_verificar",
+    "meta_webhook_recibir",
 }
 
 
