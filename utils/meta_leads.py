@@ -8,8 +8,28 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 GRAPH_API_VERSION = "v21.0"
+
+# Ecuador no cambia de horario en el año (no tiene horario de verano), asi
+# que un offset fijo es suficiente para convertir el "created_time" de Meta
+# (siempre en UTC) a la hora local real en que la persona lleno el formulario.
+ZONA_ECUADOR = timezone(timedelta(hours=-5))
+
+
+def fecha_lead_a_local(created_time: str) -> str:
+    """Convierte el 'created_time' que manda Meta (ej.
+    '2026-11-24T05:04:56+0000') a 'YYYY-MM-DD HH:MM:SS' en hora de Ecuador,
+    para que coincida con el resto de fechas del sistema. Si no se puede
+    leer, devuelve cadena vacia (quien llama usa la hora actual como respaldo)."""
+    if not created_time:
+        return ""
+    try:
+        momento = datetime.strptime(created_time, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        return ""
+    return momento.astimezone(ZONA_ECUADOR).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def firma_valida(cuerpo: bytes, firma_recibida: str, app_secret: str) -> bool:

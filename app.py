@@ -917,6 +917,24 @@ def dashboard():
         hay_costos_cargados = conn.execute(
             "SELECT 1 FROM productos WHERE activo = 1 AND costo > 0 LIMIT 1"
         ).fetchone() is not None
+
+        # --- leads nuevos por gestionar: todo contacto recien llegado (de
+        # Meta, cotizador, venta directa, a mano, etc.) que todavia esta en
+        # estado "nuevo" - se les da seguimiento uno por uno desde aqui, y en
+        # cuanto se les cambia el estado (cotizado, vendido, perdido...)
+        # desaparecen solos de esta lista. Las cargas de base masivas
+        # ('importado'/'DATA LOCAL') no cuentan: son historial, no leads
+        # esperando primer contacto.
+        sql_nuevos = (
+            "SELECT * FROM contactos WHERE estado = 'nuevo' "
+            "AND (origen IS NULL OR origen NOT IN ('importado', 'DATA LOCAL')) "
+        )
+        params_nuevos = []
+        if vendedor_id:
+            sql_nuevos += "AND vendedor_id = ? "
+            params_nuevos.append(vendedor_id)
+        sql_nuevos += "ORDER BY creado_en DESC"
+        filas_nuevos = conn.execute(sql_nuevos, params_nuevos).fetchall()
     finally:
         conn.close()
 
@@ -944,12 +962,22 @@ def dashboard():
     resumen["ganancia_hoy"] = datos_por_dia[hoy_str]["ganancia"]
     serie_7dias = [{"dia": d, **datos_por_dia[d]} for d in dias_lista]
 
+    leads_nuevos = []
+    for fila in filas_nuevos:
+        lead = dict(fila)
+        lead["wa_link"] = whatsapp.construir_link_wa(fila["telefono"], "", ajustes["prefijo_telefono"])
+        info_origen = info_origen_contacto(lead["origen"])
+        lead["origen_etiqueta"] = info_origen["etiqueta"]
+        lead["origen_clase"] = info_origen["clase"]
+        leads_nuevos.append(lead)
+
     return render_template(
         "dashboard.html",
         resumen=resumen,
         leads_hoy=leads_hoy,
         vendidos_hoy=vendidos_hoy,
         alertas=alertas,
+        leads_nuevos=leads_nuevos,
         serie_7dias=serie_7dias,
         hay_costos_cargados=hay_costos_cargados,
         estados=ESTADOS_VALIDOS,
@@ -1010,10 +1038,11 @@ def _procesar_lead_meta(leadgen_id: str, ajustes: dict):
         if existente:
             contacto_id = existente["id"]
         else:
+            fecha_formulario = meta_leads.fecha_lead_a_local(datos_lead.get("created_time", "")) or database.ahora_iso()
             cursor = conn.execute(
                 "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en) "
                 "VALUES (?, ?, 'facebook_ads', 'nuevo', ?)",
-                (nombre, telefono, database.ahora_iso()),
+                (nombre, telefono, fecha_formulario),
             )
             contacto_id = cursor.lastrowid
             registrar_actividad(conn, "contacto", f"Nuevo lead automatico de Facebook/Instagram: {nombre}")

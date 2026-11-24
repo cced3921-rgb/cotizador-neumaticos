@@ -109,6 +109,52 @@
 {% endif %}
 
 <div class="encabezado" style="margin-top:4px;">
+  <h3 style="margin:0; font-size:16px;">Leads nuevos por gestionar{% if leads_nuevos %} ({{ leads_nuevos|length }}){% endif %}</h3>
+</div>
+
+<div class="panel">
+  {% if leads_nuevos %}
+  <div class="tabla-scroll">
+  <table id="tabla-leads-nuevos">
+    <thead>
+      <tr>
+        <th>Cliente</th>
+        <th>Telefono</th>
+        <th>Tipo de lead</th>
+        <th>Fecha</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in leads_nuevos %}
+      <tr data-contacto-id="{{ l.id }}">
+        <td>{{ l.nombre }}</td>
+        <td>{{ l.telefono }}</td>
+        <td><span class="etiqueta-origen {{ l.origen_clase }}">{{ l.origen_etiqueta }}</span></td>
+        <td>{{ l.creado_en[:16] if l.creado_en else '—' }}</td>
+        <td>
+          <select class="selector-estado-tarjeta selector-estado-dashboard badge-{{ l.estado }}" data-id="{{ l.id }}" title="Cambiar estado del lead">
+            {% for e in estados %}
+              <option value="{{ e }}" {{ 'selected' if e == l.estado else '' }}>{{ nombres_estados[e] }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td style="text-align:right; white-space:nowrap;">
+          <a class="btn btn-sm" href="{{ url_for('contacto_detalle', contacto_id=l.id) }}">Gestionar</a>
+          <a class="btn btn-sm" href="{{ l.wa_link }}" target="_blank" title="Escribirle por WhatsApp">💬</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="vacio">No hay leads nuevos sin gestionar. En cuanto llegue uno (de Facebook/Instagram, cotizador, etc.) aparece aqui.</div>
+  {% endif %}
+</div>
+
+<div class="encabezado" style="margin-top:4px;">
   <h3 style="margin:0; font-size:16px;">Leads de hoy — retomar seguimiento</h3>
 </div>
 
@@ -212,6 +258,16 @@ document.querySelectorAll('.selector-estado-dashboard').forEach(selector => {
     });
 
     if (resp.ok) {
+      // En "Leads nuevos por gestionar" la lista es solo de estado "nuevo":
+      // en cuanto se cambia a otro estado, el lead ya fue atendido y se
+      // quita de esta lista (no hace falta recargar toda la pagina).
+      if (selector.closest('#tabla-leads-nuevos') && nuevoEstado !== 'nuevo') {
+        const fila = selector.closest('tr');
+        fila.style.transition = 'opacity 0.25s';
+        fila.style.opacity = '0';
+        setTimeout(() => fila.remove(), 250);
+        return;
+      }
       selector.classList.remove(`badge-${selector.dataset.estadoAnterior}`);
       selector.classList.add(`badge-${nuevoEstado}`);
       selector.dataset.estadoAnterior = nuevoEstado;
