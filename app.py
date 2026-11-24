@@ -1214,8 +1214,8 @@ def _procesar_mensaje_whatsapp(valor: dict, ajustes: dict):
                 continue
 
             conn.execute(
-                "UPDATE contactos SET prioridad_ia = ?, ia_pausada = ? WHERE id = ?",
-                (resultado["prioridad"], 1 if resultado["listo_para_vendedor"] else 0, contacto_id),
+                "UPDATE contactos SET prioridad_ia = ? WHERE id = ?",
+                (resultado["prioridad"], contacto_id),
             )
             if resultado.get("resumen_interno"):
                 nota_ia = f"[IA {ahora[:16]}] {resultado['resumen_interno']}"
