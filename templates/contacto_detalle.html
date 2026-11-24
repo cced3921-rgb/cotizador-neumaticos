@@ -3,7 +3,10 @@
 <div class="encabezado">
   <div>
     <h2 style="margin-bottom:4px;">{{ contacto.nombre }} <span class="etiqueta-origen {{ origen_info.clase }}">{{ origen_info.etiqueta }}</span></h2>
-    <div style="font-size:13px; color:var(--texto-suave);">Ingreso: {{ contacto.creado_en[:16] if contacto.creado_en else '—' }}</div>
+    <div style="font-size:13px; color:var(--texto-suave);">
+      Ingreso: {{ contacto.creado_en[:16] if contacto.creado_en else '—' }}
+      {% if contacto.email %} · <a href="mailto:{{ contacto.email }}">{{ contacto.email }}</a>{% endif %}
+    </div>
   </div>
   <a class="btn" href="{{ url_for('contactos') }}">&larr; Volver a contactos</a>
 </div>

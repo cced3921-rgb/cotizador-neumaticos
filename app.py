@@ -1028,21 +1028,23 @@ def _procesar_lead_meta(leadgen_id: str, ajustes: dict):
             conn.commit()
             return
 
-        nombre, telefono = meta_leads.extraer_nombre_telefono(datos_lead)
+        nombre, telefono, email = meta_leads.extraer_datos_contacto(datos_lead)
         if not telefono:
             registrar_actividad(conn, "contacto", f"Lead de Meta sin telefono, se omitio: {nombre}")
             conn.commit()
             return
 
-        existente = conn.execute("SELECT id FROM contactos WHERE telefono = ?", (telefono,)).fetchone()
+        existente = conn.execute("SELECT id, email FROM contactos WHERE telefono = ?", (telefono,)).fetchone()
         if existente:
             contacto_id = existente["id"]
+            if email and not existente["email"]:
+                conn.execute("UPDATE contactos SET email = ? WHERE id = ?", (email, contacto_id))
         else:
             fecha_formulario = meta_leads.fecha_lead_a_local(datos_lead.get("created_time", "")) or database.ahora_iso()
             cursor = conn.execute(
-                "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en) "
-                "VALUES (?, ?, 'facebook_ads', 'nuevo', ?)",
-                (nombre, telefono, fecha_formulario),
+                "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en, email) "
+                "VALUES (?, ?, 'facebook_ads', 'nuevo', ?, ?)",
+                (nombre, telefono, fecha_formulario, email),
             )
             contacto_id = cursor.lastrowid
             registrar_actividad(conn, "contacto", f"Nuevo lead automatico de Facebook/Instagram: {nombre}")
@@ -1360,6 +1362,7 @@ def contacto_nuevo():
         return render_template("contacto_form.html", origenes=ORIGENES_SELECCIONABLES)
     nombre = request.form.get("nombre", "").strip()
     telefono = request.form.get("telefono", "").strip()
+    email = request.form.get("email", "").strip()
     origen = request.form.get("origen", "").strip() or "manual"
     notas = request.form.get("notas", "").strip()
     if not nombre or not telefono:
@@ -1368,9 +1371,9 @@ def contacto_nuevo():
     conn = database.get_connection()
     try:
         cursor = conn.execute(
-            "INSERT INTO contactos (nombre, telefono, origen, estado, notas, creado_en, vendedor_id) "
-            "VALUES (?, ?, ?, 'nuevo', ?, ?, ?)",
-            (nombre, telefono, origen, notas, database.ahora_iso(), g.usuario["id"]),
+            "INSERT INTO contactos (nombre, telefono, email, origen, estado, notas, creado_en, vendedor_id) "
+            "VALUES (?, ?, ?, ?, 'nuevo', ?, ?, ?)",
+            (nombre, telefono, email, origen, notas, database.ahora_iso(), g.usuario["id"]),
         )
         contacto_id = cursor.lastrowid
         registrar_actividad(conn, "contacto", f"Creo el contacto {nombre}")

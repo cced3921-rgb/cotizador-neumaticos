@@ -57,12 +57,13 @@ def _sin_acentos(texto: str) -> str:
     return texto.lower().translate(equivalencias)
 
 
-def extraer_nombre_telefono(datos_lead: dict):
+def extraer_datos_contacto(datos_lead: dict):
     """El formulario de Meta puede traer distintos nombres de campo segun
     como se armo (full_name vs first_name+last_name, phone_number vs
     phone) - aqui se normaliza a lo que necesita nuestro CRM. Si el
     formulario uso preguntas personalizadas (no los campos estandar de
-    Meta), se busca por palabras clave en el nombre de la pregunta."""
+    Meta), se busca por palabras clave en el nombre de la pregunta.
+    Devuelve (nombre, telefono, email)."""
     campos = {}
     for campo in datos_lead.get("field_data", []):
         valores = campo.get("values") or []
@@ -74,8 +75,9 @@ def extraer_nombre_telefono(datos_lead: dict):
         or ""
     )
     telefono = campos.get("phone_number") or campos.get("phone") or ""
+    email = campos.get("email") or ""
 
-    if not nombre or not telefono:
+    if not nombre or not telefono or not email:
         for clave, valor in campos.items():
             clave_normalizada = _sin_acentos(clave)
             if not telefono and any(
@@ -87,5 +89,9 @@ def extraer_nombre_telefono(datos_lead: dict):
                 palabra in clave_normalizada for palabra in ("nombre", "name")
             ):
                 nombre = valor
+            if not email and any(
+                palabra in clave_normalizada for palabra in ("correo", "email", "mail")
+            ):
+                email = valor
 
-    return (nombre or "Lead de Facebook").strip(), telefono.strip()
+    return (nombre or "Lead de Facebook").strip(), telefono.strip(), email.strip()
