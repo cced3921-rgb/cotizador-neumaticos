@@ -32,10 +32,17 @@ def obtener_datos_lead(leadgen_id: str, page_access_token: str) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _sin_acentos(texto: str) -> str:
+    equivalencias = str.maketrans("áéíóúñ", "aeioun")
+    return texto.lower().translate(equivalencias)
+
+
 def extraer_nombre_telefono(datos_lead: dict):
     """El formulario de Meta puede traer distintos nombres de campo segun
     como se armo (full_name vs first_name+last_name, phone_number vs
-    phone) - aqui se normaliza a lo que necesita nuestro CRM."""
+    phone) - aqui se normaliza a lo que necesita nuestro CRM. Si el
+    formulario uso preguntas personalizadas (no los campos estandar de
+    Meta), se busca por palabras clave en el nombre de la pregunta."""
     campos = {}
     for campo in datos_lead.get("field_data", []):
         valores = campo.get("values") or []
@@ -44,7 +51,21 @@ def extraer_nombre_telefono(datos_lead: dict):
     nombre = (
         campos.get("full_name")
         or f"{campos.get('first_name', '')} {campos.get('last_name', '')}".strip()
-        or "Lead de Facebook"
+        or ""
     )
     telefono = campos.get("phone_number") or campos.get("phone") or ""
-    return nombre.strip(), telefono.strip()
+
+    if not nombre or not telefono:
+        for clave, valor in campos.items():
+            clave_normalizada = _sin_acentos(clave)
+            if not telefono and any(
+                palabra in clave_normalizada
+                for palabra in ("telefono", "phone", "celular", "whatsapp")
+            ):
+                telefono = valor
+            if not nombre and any(
+                palabra in clave_normalizada for palabra in ("nombre", "name")
+            ):
+                nombre = valor
+
+    return (nombre or "Lead de Facebook").strip(), telefono.strip()
