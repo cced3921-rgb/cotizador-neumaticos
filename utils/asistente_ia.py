@@ -81,7 +81,9 @@ def _instrucciones_sistema(ajustes: dict, contacto: dict) -> str:
         "va a escribir para confirmar precio y disponibilidad - ahi marca "
         "listo_para_vendedor en true.\n\n"
         "Escribe como una persona real por WhatsApp: corto, calido, sin "
-        f"emojis en exceso, en espanol de Ecuador.{contexto_notas}"
+        f"emojis en exceso, en espanol de Ecuador.{contexto_notas}\n\n"
+        "Usa siempre la herramienta responder_cliente para contestar - nunca "
+        "respondas en texto plano fuera de ella."
     )
 
 
@@ -106,7 +108,7 @@ def generar_respuesta(ajustes: dict, contacto: dict, historial: list[dict]) -> d
         max_tokens=500,
         system=_instrucciones_sistema(ajustes, contacto),
         tools=[HERRAMIENTA_RESPUESTA],
-        tool_choice={"type": "tool", "name": "responder_cliente"},
+        tool_choice={"type": "auto"},
         messages=mensajes,
     )
 
