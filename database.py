@@ -275,6 +275,31 @@ def init_db():
     conn = get_connection()
     try:
         conn.executescript(ESQUEMA)
+
+        # La tabla "mensajes" existia desde antes (version vieja, nunca
+        # usada, pensada para un Inbox generico con columna "direccion").
+        # El asistente de IA por WhatsApp necesita su esquema nuevo (autor,
+        # wa_message_id) - como "CREATE TABLE IF NOT EXISTS" no toca una
+        # tabla que ya existe, si detectamos la version vieja la reemplazamos.
+        columnas_mensajes = {
+            fila["name"] for fila in conn.execute("PRAGMA table_info(mensajes)").fetchall()
+        }
+        if columnas_mensajes and "autor" not in columnas_mensajes:
+            conn.execute("DROP TABLE mensajes")
+            conn.execute(
+                """
+                CREATE TABLE mensajes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversacion_id INTEGER NOT NULL,
+                    autor TEXT NOT NULL,
+                    texto TEXT NOT NULL,
+                    wa_message_id TEXT,
+                    fecha TEXT NOT NULL,
+                    FOREIGN KEY (conversacion_id) REFERENCES conversaciones(id)
+                )
+                """
+            )
+
         for columna_sql in (
             "ALTER TABLE cotizaciones ADD COLUMN pdf_archivo TEXT",
             "ALTER TABLE cotizaciones ADD COLUMN subtotal REAL NOT NULL DEFAULT 0",
