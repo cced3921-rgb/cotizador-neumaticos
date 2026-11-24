@@ -392,6 +392,14 @@ tbody tr:hover { background: #eef6f0; }
 .resultado-ok { background: #e4f7ec; color: #0e703b; }
 .resultado-perdido { background: #fdeaea; color: var(--rojo-marca-hover); }
 
+/* --- Tipo de lead (de donde salio el contacto) --- */
+.etiqueta-origen { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.origen-meta { background: #e8f0fe; color: #1a56db; }
+.origen-base { background: #f1f1f3; color: #6b7280; }
+.origen-web { background: #f1e9fd; color: #7c3aed; }
+.origen-directa { background: #e4f7ec; color: #0e703b; }
+.origen-manual { background: #fff3d9; color: #a86a00; }
+
 .fila-panel-seguimiento td { padding: 0; border-bottom: 1px solid var(--borde); }
 .panel-seguimiento { background: var(--bg); padding: 16px; }
 .panel-seguimiento-titulo { margin: 0 0 10px; font-weight: 600; }

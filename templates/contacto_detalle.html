@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block contenido %}
 <div class="encabezado">
-  <h2>{{ contacto.nombre }}</h2>
+  <h2>{{ contacto.nombre }} <span class="etiqueta-origen {{ origen_info.clase }}">{{ origen_info.etiqueta }}</span></h2>
   <a class="btn" href="{{ url_for('contactos') }}">&larr; Volver a contactos</a>
 </div>
 

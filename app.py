@@ -643,6 +643,36 @@ RESULTADOS_SEGUIMIENTO = {
     "otro": {"etiqueta": "Otro", "clase": "resultado-neutral", "estado": None},
 }
 
+# De donde salio cada contacto - para que en la lista del CRM se note de un
+# vistazo si fue un formulario de Facebook/Instagram, una carga de base
+# vieja, una venta directa, etc. "origen" en la tabla contactos puede traer
+# cualquier texto libre (el formulario de "nuevo contacto" lo permitia asi
+# antes); lo que no coincide con nada de aqui se muestra tal cual, en gris.
+ORIGENES_CONTACTO = {
+    "facebook_ads": {"etiqueta": "Formulario completado", "clase": "origen-meta"},
+    "importado": {"etiqueta": "Carga de base", "clase": "origen-base"},
+    "DATA LOCAL": {"etiqueta": "Carga de base", "clase": "origen-base"},
+    "cotizador": {"etiqueta": "Cotizacion web", "clase": "origen-web"},
+    "venta directa": {"etiqueta": "Venta directa", "clase": "origen-directa"},
+    "manual": {"etiqueta": "Agregado a mano", "clase": "origen-manual"},
+    "referido": {"etiqueta": "Referido", "clase": "origen-manual"},
+    "": {"etiqueta": "Agregado a mano", "clase": "origen-manual"},
+}
+
+# Opciones que se ofrecen al agregar un contacto a mano. La importacion por
+# Excel/CSV puede seguir trayendo cualquier otro texto en su columna
+# "origen" - se muestra igual, solo que sin badge de color especifico.
+ORIGENES_SELECCIONABLES = [
+    ("manual", "Agregado a mano"),
+    ("referido", "Referido"),
+    ("venta directa", "Venta directa"),
+    ("importado", "Carga de base"),
+]
+
+
+def info_origen_contacto(origen: str) -> dict:
+    return ORIGENES_CONTACTO.get(origen or "", {"etiqueta": origen or "Agregado a mano", "clase": "origen-manual"})
+
 
 def _vendedor_actual_id():
     """None si es admin (ve todo); id del usuario si es vendedor (solo lo suyo)."""
@@ -1068,6 +1098,7 @@ cced3921@gmail.com.</p>
 @app.route("/contactos")
 def contactos():
     estado = request.args.get("estado", "")
+    origen_filtro = request.args.get("origen", "")
     q = request.args.get("q", "").strip()
     vendedor_id = _vendedor_actual_id()
     conn = database.get_connection()
@@ -1087,12 +1118,20 @@ def contactos():
         if estado:
             sql += " AND estado = ?"
             params.append(estado)
+        if origen_filtro:
+            sql += " AND origen = ?"
+            params.append(origen_filtro)
         if q:
             sql += " AND (nombre LIKE ? OR telefono LIKE ?)"
             params.extend([f"%{q}%", f"%{q}%"])
         sql += " ORDER BY COALESCE(ultimo_contacto, creado_en) DESC"
         filas = conn.execute(sql, params).fetchall()
         resumen = obtener_resumen_crm(conn, vendedor_id)
+        origenes_en_uso = [
+            fila[0] for fila in conn.execute(
+                "SELECT DISTINCT origen FROM contactos WHERE origen IS NOT NULL AND origen != '' ORDER BY origen"
+            ).fetchall()
+        ]
     finally:
         conn.close()
 
@@ -1102,12 +1141,18 @@ def contactos():
         info_resultado = RESULTADOS_SEGUIMIENTO.get(c["ultimo_resultado"])
         c["ultimo_resultado_etiqueta"] = info_resultado["etiqueta"] if info_resultado else None
         c["ultimo_resultado_clase"] = info_resultado["clase"] if info_resultado else None
+        info_origen = info_origen_contacto(c["origen"])
+        c["origen_etiqueta"] = info_origen["etiqueta"]
+        c["origen_clase"] = info_origen["clase"]
         lista.append(c)
+
+    opciones_origen = [(o, info_origen_contacto(o)["etiqueta"]) for o in origenes_en_uso]
 
     return render_template(
         "contactos.html",
         contactos=lista, estado=estado, q=q, estados=ESTADOS_VALIDOS, resumen=resumen,
         resultados=RESULTADOS_SEGUIMIENTO,
+        origen_filtro=origen_filtro, opciones_origen=opciones_origen,
     )
 
 
@@ -1283,14 +1328,14 @@ def api_cotizacion_eliminar(cotizacion_id):
 @app.route("/contactos/nuevo", methods=["GET", "POST"])
 def contacto_nuevo():
     if request.method == "GET":
-        return render_template("contacto_form.html")
+        return render_template("contacto_form.html", origenes=ORIGENES_SELECCIONABLES)
     nombre = request.form.get("nombre", "").strip()
     telefono = request.form.get("telefono", "").strip()
-    origen = request.form.get("origen", "").strip()
+    origen = request.form.get("origen", "").strip() or "manual"
     notas = request.form.get("notas", "").strip()
     if not nombre or not telefono:
         flash("Nombre y telefono son obligatorios.", "error")
-        return render_template("contacto_form.html")
+        return render_template("contacto_form.html", origenes=ORIGENES_SELECCIONABLES)
     conn = database.get_connection()
     try:
         cursor = conn.execute(
@@ -1415,6 +1460,7 @@ def contacto_detalle(contacto_id):
         estados=ESTADOS_VALIDOS,
         wa_link=wa_link,
         scripts=scripts,
+        origen_info=info_origen_contacto(contacto["origen"]),
     )
 
 

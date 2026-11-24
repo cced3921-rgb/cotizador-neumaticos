@@ -38,7 +38,13 @@
         <option value="{{ e }}" {{ 'selected' if e == estado else '' }}>{{ e|capitalize }}</option>
       {% endfor %}
     </select>
-    <button class="btn" type="submit">Filtrar por estado</button>
+    <select name="origen">
+      <option value="">Todos los tipos de lead</option>
+      {% for valor, etiqueta in opciones_origen %}
+        <option value="{{ valor }}" {{ 'selected' if valor == origen_filtro else '' }}>{{ etiqueta }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn" type="submit">Filtrar</button>
   </form>
 </div>
 
@@ -62,13 +68,14 @@
   <div class="tabla-scroll">
   <table>
     <thead>
-      <tr><th>Nombre</th><th>Telefono</th><th>Estado</th><th>Como quedo</th><th>Ultimo contacto</th><th></th></tr>
+      <tr><th>Nombre</th><th>Telefono</th><th>Tipo de lead</th><th>Estado</th><th>Como quedo</th><th>Ultimo contacto</th><th></th></tr>
     </thead>
     <tbody id="cuerpo-tabla-contactos">
       {% for c in contactos %}
       <tr data-buscar="{{ (c.nombre ~ ' ' ~ c.telefono)|lower }}" class="fila-clicable" data-href="{{ url_for('contacto_detalle', contacto_id=c.id) }}">
         <td>{{ c.nombre }}</td>
         <td>{{ c.telefono }}</td>
+        <td><span class="etiqueta-origen {{ c.origen_clase }}">{{ c.origen_etiqueta }}</span></td>
         <td><span class="badge badge-{{ c.estado }}">{{ c.estado|capitalize }}</span></td>
         <td class="celda-como-quedo">
           {% if c.ultimo_resultado_etiqueta %}
@@ -84,7 +91,7 @@
         </td>
       </tr>
       <tr class="fila-panel-seguimiento" id="panel-seguimiento-{{ c.id }}" hidden>
-        <td colspan="6">
+        <td colspan="7">
           <div class="panel-seguimiento">
             <p class="panel-seguimiento-titulo">¿Que paso con {{ c.nombre }}?</p>
             <div class="pildoras-resultado">

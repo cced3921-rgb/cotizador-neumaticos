@@ -16,8 +16,12 @@
         <input type="tel" name="telefono" placeholder="0991234567" required>
       </div>
       <div>
-        <label>Origen (opcional)</label>
-        <input type="text" name="origen" placeholder="Facebook, referido, etc.">
+        <label>Tipo de lead</label>
+        <select name="origen">
+          {% for valor, etiqueta in origenes %}
+          <option value="{{ valor }}">{{ etiqueta }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div>
         <label>Notas (opcional)</label>
