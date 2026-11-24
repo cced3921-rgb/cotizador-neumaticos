@@ -206,4 +206,55 @@
     </div>
   </form>
 </div>
+
+<div class="panel" style="max-width: 680px;">
+  <h3 style="margin-top:0;">Asistente de IA (WhatsApp)</h3>
+  <p style="font-size:13px; color:var(--texto-suave); margin-top:-6px;">
+    Cuando alguien escribe por WhatsApp, el asistente lee el mensaje, hace las preguntas necesarias
+    para preparar al cliente (que vehiculo o medida busca, cuantas llantas, con que urgencia) y le pone
+    una prioridad (🔥 caliente / 🌤 tibio / ❄ frio) para que el vendedor sepa a quien atender primero.
+    Se puede pausar en cualquier momento desde el detalle de cada contacto.
+  </p>
+
+  <div class="estado-conexion-meta {{ 'conectado' if ajustes.anthropic_api_key and ajustes.whatsapp_access_token else 'no-conectado' }}">
+    {{ '🟢 Conectado' if ajustes.anthropic_api_key and ajustes.whatsapp_access_token else '⚪ Todavia no conectado' }}
+  </div>
+
+  <details {{ 'open' if not ajustes.whatsapp_access_token else '' }} style="margin-top:12px;">
+    <summary style="cursor:pointer; font-weight:600;">Como conectarlo (pasos en Meta)</summary>
+    <ol style="font-size:13px; color:var(--texto-suave); padding-left:20px; margin-top:10px;">
+      <li>En la misma app de Meta (developers.facebook.com), agrega el producto <strong>WhatsApp</strong>.</li>
+      <li>En la configuracion de WhatsApp &rarr; Webhooks, usa la misma URL y token de verificacion de arriba, y suscribete al campo <code>messages</code>.</li>
+      <li>Copia el <strong>ID del numero de telefono</strong> (Phone number ID) y el <strong>token de acceso temporal</strong> que te da Meta para el numero de prueba, y pegalos abajo.</li>
+      <li>Consigue tu API key de IA en <strong>console.anthropic.com</strong> y pegala abajo tambien.</li>
+      <li>Guarda y activa el asistente - en cuanto alguien escriba al numero de prueba, el asistente contesta solo.</li>
+    </ol>
+  </details>
+
+  <form method="post" action="{{ url_for('ajustes_asistente_ia_guardar') }}" style="margin-top:14px;">
+    <div class="form-grid">
+      <div>
+        <label>ID del numero de telefono (Phone number ID)</label>
+        <input type="text" name="whatsapp_phone_number_id" value="{{ ajustes.whatsapp_phone_number_id }}">
+      </div>
+      <div>
+        <label>Token de acceso de WhatsApp</label>
+        <input type="password" name="whatsapp_access_token" value="{{ ajustes.whatsapp_access_token }}" placeholder="Pegalo aqui">
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <label>API key de Anthropic (Claude)</label>
+      <input type="password" name="anthropic_api_key" value="{{ ajustes.anthropic_api_key }}" placeholder="sk-ant-...">
+    </div>
+    <div style="margin-top:12px;">
+      <label style="display:flex; align-items:center; gap:8px; font-weight:400;">
+        <input type="checkbox" name="whatsapp_asistente_activo" {{ 'checked' if ajustes.whatsapp_asistente_activo == '1' else '' }}>
+        Asistente activo (si se desmarca, nadie recibe respuesta automatica)
+      </label>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn btn-primario" type="submit">Guardar asistente de IA</button>
+    </div>
+  </form>
+</div>
 {% endblock %}

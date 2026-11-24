@@ -68,7 +68,7 @@
   <div class="tabla-scroll">
   <table>
     <thead>
-      <tr><th>Nombre</th><th>Telefono</th><th>Tipo de lead</th><th>Fecha</th><th>Estado</th><th>Como quedo</th><th>Ultimo contacto</th><th></th></tr>
+      <tr><th>Nombre</th><th>Telefono</th><th>Tipo de lead</th><th>Prioridad IA</th><th>Fecha</th><th>Estado</th><th>Como quedo</th><th>Ultimo contacto</th><th></th></tr>
     </thead>
     <tbody id="cuerpo-tabla-contactos">
       {% for c in contactos %}
@@ -76,6 +76,7 @@
         <td>{{ c.nombre }}</td>
         <td>{{ c.telefono }}</td>
         <td><span class="etiqueta-origen {{ c.origen_clase }}">{{ c.origen_etiqueta }}</span></td>
+        <td><span class="etiqueta-prioridad {{ c.prioridad_clase }}">{{ c.prioridad_etiqueta }}</span></td>
         <td>{{ c.creado_en[:16] if c.creado_en else '—' }}</td>
         <td><span class="badge badge-{{ c.estado }}">{{ c.estado|capitalize }}</span></td>
         <td class="celda-como-quedo">
@@ -92,7 +93,7 @@
         </td>
       </tr>
       <tr class="fila-panel-seguimiento" id="panel-seguimiento-{{ c.id }}" hidden>
-        <td colspan="8">
+        <td colspan="9">
           <div class="panel-seguimiento">
             <p class="panel-seguimiento-titulo">¿Que paso con {{ c.nombre }}?</p>
             <div class="pildoras-resultado">

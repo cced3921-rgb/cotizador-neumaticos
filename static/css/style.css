@@ -399,6 +399,29 @@ tbody tr:hover { background: #eef6f0; }
 .origen-web { background: #f1e9fd; color: #7c3aed; }
 .origen-directa { background: #e4f7ec; color: #0e703b; }
 .origen-manual { background: #fff3d9; color: #a86a00; }
+.origen-whatsapp { background: #e0f7e9; color: #0d9456; }
+
+/* --- Prioridad que le pone el asistente de IA a cada lead --- */
+.etiqueta-prioridad { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.prioridad-caliente { background: #fdeaea; color: #c22a2a; }
+.prioridad-tibio { background: #fff3d9; color: #a86a00; }
+.prioridad-frio { background: #e8f0fe; color: #1a56db; }
+.prioridad-ninguna { background: #f1f1f3; color: #9ca3af; }
+
+/* --- Conversacion de WhatsApp (asistente de IA + vendedor) --- */
+.interruptor-ia { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texto-suave); cursor: pointer; }
+.hilo-conversacion {
+  max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; background: var(--bg); border-radius: 10px; margin-bottom: 10px;
+}
+.burbuja { max-width: 75%; padding: 8px 12px; border-radius: 12px; font-size: 14px; }
+.burbuja-cliente { align-self: flex-start; background: #fff; border: 1px solid var(--borde); }
+.burbuja-ia { align-self: flex-end; background: #e8f0fe; }
+.burbuja-vendedor { align-self: flex-end; background: #e4f7ec; }
+.burbuja-texto { white-space: pre-wrap; }
+.burbuja-meta { font-size: 11px; color: var(--texto-suave); margin-top: 4px; }
+.form-mensaje-whatsapp { display: flex; gap: 8px; }
+.form-mensaje-whatsapp input { flex: 1; }
 
 .fila-panel-seguimiento td { padding: 0; border-bottom: 1px solid var(--borde); }
 .panel-seguimiento { background: var(--bg); padding: 16px; }

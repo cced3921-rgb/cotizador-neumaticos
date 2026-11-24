@@ -2,7 +2,7 @@
 {% block contenido %}
 <div class="encabezado">
   <div>
-    <h2 style="margin-bottom:4px;">{{ contacto.nombre }} <span class="etiqueta-origen {{ origen_info.clase }}">{{ origen_info.etiqueta }}</span></h2>
+    <h2 style="margin-bottom:4px;">{{ contacto.nombre }} <span class="etiqueta-origen {{ origen_info.clase }}">{{ origen_info.etiqueta }}</span> <span class="etiqueta-prioridad {{ prioridad_info.clase }}">{{ prioridad_info.etiqueta }}</span></h2>
     <div style="font-size:13px; color:var(--texto-suave);">
       Ingreso: {{ contacto.creado_en[:16] if contacto.creado_en else '—' }}
       {% if contacto.email %} · <a href="mailto:{{ contacto.email }}">{{ contacto.email }}</a>{% endif %}
@@ -16,6 +16,32 @@
   <a class="btn" href="tel:{{ contacto.telefono }}">📞 Llamar</a>
   <a class="btn" href="{{ url_for('cotizar') }}?contacto_id={{ contacto.id }}">🧾 Nueva cotizacion</a>
   <a class="btn" href="{{ url_for('venta_manual') }}?contacto_id={{ contacto.id }}">✔ Registrar venta</a>
+</div>
+
+<div class="panel">
+  <div class="encabezado" style="margin-bottom:10px;">
+    <h3 style="margin:0; font-size:16px;">💬 WhatsApp</h3>
+    <label class="interruptor-ia">
+      <input type="checkbox" id="toggle-ia-pausada" {{ 'checked' if contacto.ia_pausada else '' }}>
+      <span>Asistente de IA {{ 'pausado' if contacto.ia_pausada else 'activo' }} para este contacto</span>
+    </label>
+  </div>
+  <div class="hilo-conversacion" id="hilo-conversacion">
+    {% if mensajes_wa %}
+      {% for m in mensajes_wa %}
+      <div class="burbuja burbuja-{{ m.autor }}">
+        <div class="burbuja-texto">{{ m.texto }}</div>
+        <div class="burbuja-meta">{{ 'Cliente' if m.autor == 'cliente' else ('Asistente IA' if m.autor == 'ia' else 'Tu') }} · {{ m.fecha[:16] }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="vacio">Todavia no hay mensajes de WhatsApp con este contacto.</div>
+    {% endif %}
+  </div>
+  <form id="form-mensaje-whatsapp" class="form-mensaje-whatsapp">
+    <input type="text" id="campo-mensaje-whatsapp" placeholder="Escribe un mensaje..." autocomplete="off">
+    <button type="submit" class="btn btn-primario">Enviar</button>
+  </form>
 </div>
 
 {% if scripts %}
@@ -141,6 +167,60 @@
 {% block scripts %}
 <script>
 const CONTACTO_ID = {{ contacto.id }};
+
+const hiloConversacion = document.getElementById('hilo-conversacion');
+if (hiloConversacion) hiloConversacion.scrollTop = hiloConversacion.scrollHeight;
+
+const toggleIaPausada = document.getElementById('toggle-ia-pausada');
+if (toggleIaPausada) {
+  toggleIaPausada.addEventListener('change', async () => {
+    const pausada = toggleIaPausada.checked;
+    toggleIaPausada.disabled = true;
+    try {
+      const resp = await fetch(`/api/contactos/${CONTACTO_ID}/ia-pausa`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pausada }),
+      });
+      if (!resp.ok) {
+        alert('No se pudo cambiar.');
+        toggleIaPausada.checked = !pausada;
+      } else {
+        toggleIaPausada.nextElementSibling.textContent =
+          'Asistente de IA ' + (pausada ? 'pausado' : 'activo') + ' para este contacto';
+      }
+    } finally {
+      toggleIaPausada.disabled = false;
+    }
+  });
+}
+
+const formMensajeWhatsapp = document.getElementById('form-mensaje-whatsapp');
+if (formMensajeWhatsapp) {
+  formMensajeWhatsapp.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const campo = document.getElementById('campo-mensaje-whatsapp');
+    const texto = campo.value.trim();
+    if (!texto) return;
+    const boton = formMensajeWhatsapp.querySelector('button');
+    boton.disabled = true;
+    try {
+      const resp = await fetch(`/api/contactos/${CONTACTO_ID}/mensaje-whatsapp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texto }),
+      });
+      const datos = await resp.json();
+      if (!resp.ok) {
+        alert(datos.error || 'No se pudo enviar.');
+        return;
+      }
+      location.reload();
+    } finally {
+      boton.disabled = false;
+    }
+  });
+}
 
 async function registrarSeguimiento(resultado, nota, boton) {
   boton.disabled = true;

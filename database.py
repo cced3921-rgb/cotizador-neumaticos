@@ -94,9 +94,8 @@ CREATE TABLE IF NOT EXISTS actividad (
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
--- Base lista para el modulo Inbox (conexion futura de WhatsApp Business y
--- Facebook Messenger): hoy no se escribe nada aqui todavia, solo existen
--- para que la integracion real, cuando se conecte, tenga donde guardar.
+-- Bandeja de mensajes (WhatsApp Business API, y a futuro Instagram/
+-- Messenger): una fila por conversacion con un contacto en un canal.
 CREATE TABLE IF NOT EXISTS conversaciones (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     canal TEXT NOT NULL,
@@ -109,6 +108,18 @@ CREATE TABLE IF NOT EXISTS conversaciones (
     vendedor_id INTEGER REFERENCES usuarios(id),
     creado_en TEXT NOT NULL,
     FOREIGN KEY (contacto_id) REFERENCES contactos(id)
+);
+
+-- Cada mensaje individual de una conversacion (entrante del cliente,
+-- saliente del asistente de IA, o saliente escrito a mano por un vendedor).
+CREATE TABLE IF NOT EXISTS mensajes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversacion_id INTEGER NOT NULL,
+    autor TEXT NOT NULL,
+    texto TEXT NOT NULL,
+    wa_message_id TEXT,
+    fecha TEXT NOT NULL,
+    FOREIGN KEY (conversacion_id) REFERENCES conversaciones(id)
 );
 
 -- Leads que ya se trajeron desde Meta (Facebook/Instagram Lead Ads), para
@@ -185,6 +196,14 @@ AJUSTES_POR_DEFECTO = {
     "meta_app_secret": "",
     "meta_page_access_token": "",
     "meta_page_id": "",
+    # Asistente de IA por WhatsApp: lee cada mensaje entrante, hace las
+    # preguntas necesarias para preparar al cliente (que vehiculo, que
+    # medida, con que urgencia) y le pone una prioridad. Vacios hasta que
+    # el admin los configure desde Ajustes.
+    "anthropic_api_key": "",
+    "whatsapp_phone_number_id": "",
+    "whatsapp_access_token": "",
+    "whatsapp_asistente_activo": "1",
 }
 
 # Scripts de venta listos para copiar y pegar desde el detalle de cada
@@ -269,6 +288,8 @@ def init_db():
             "ALTER TABLE productos ADD COLUMN categoria TEXT NOT NULL DEFAULT 'llantas'",
             "ALTER TABLE cotizaciones ADD COLUMN canal_venta TEXT",
             "ALTER TABLE contactos ADD COLUMN email TEXT",
+            "ALTER TABLE contactos ADD COLUMN prioridad_ia TEXT",
+            "ALTER TABLE contactos ADD COLUMN ia_pausada INTEGER NOT NULL DEFAULT 0",
         ):
             try:
                 conn.execute(columna_sql)

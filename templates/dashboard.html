@@ -121,6 +121,7 @@
         <th>Cliente</th>
         <th>Telefono</th>
         <th>Tipo de lead</th>
+        <th>Prioridad IA</th>
         <th>Fecha</th>
         <th>Estado</th>
         <th></th>
@@ -132,6 +133,7 @@
         <td>{{ l.nombre }}</td>
         <td>{{ l.telefono }}</td>
         <td><span class="etiqueta-origen {{ l.origen_clase }}">{{ l.origen_etiqueta }}</span></td>
+        <td><span class="etiqueta-prioridad {{ l.prioridad_clase }}">{{ l.prioridad_etiqueta }}</span></td>
         <td>{{ l.creado_en[:16] if l.creado_en else '—' }}</td>
         <td>
           <select class="selector-estado-tarjeta selector-estado-dashboard badge-{{ l.estado }}" data-id="{{ l.id }}" title="Cambiar estado del lead">

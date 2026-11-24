@@ -16,6 +16,7 @@ from werkzeug.security import generate_password_hash
 from werkzeug.utils import secure_filename
 
 import database
+from utils import asistente_ia
 from utils import auth
 from utils import importar_catalogo as importador
 from utils import importar_contactos as importador_contactos
@@ -24,6 +25,7 @@ from utils import meta_leads
 from utils import pdf_cotizacion
 from utils import portapapeles
 from utils import whatsapp
+from utils import whatsapp_api
 
 BASE_DIR = Path(__file__).resolve().parent
 EXTENSIONES_IMAGEN = {".jpg", ".jpeg", ".png", ".webp"}
@@ -650,6 +652,7 @@ RESULTADOS_SEGUIMIENTO = {
 # antes); lo que no coincide con nada de aqui se muestra tal cual, en gris.
 ORIGENES_CONTACTO = {
     "facebook_ads": {"etiqueta": "Formulario completado", "clase": "origen-meta"},
+    "whatsapp": {"etiqueta": "WhatsApp", "clase": "origen-whatsapp"},
     "importado": {"etiqueta": "Carga de base", "clase": "origen-base"},
     "DATA LOCAL": {"etiqueta": "Carga de base", "clase": "origen-base"},
     "cotizador": {"etiqueta": "Cotizacion web", "clase": "origen-web"},
@@ -672,6 +675,19 @@ ORIGENES_SELECCIONABLES = [
 
 def info_origen_contacto(origen: str) -> dict:
     return ORIGENES_CONTACTO.get(origen or "", {"etiqueta": origen or "Agregado a mano", "clase": "origen-manual"})
+
+
+# Prioridad que le pone el asistente de IA a cada lead segun que tan listo
+# esta para comprar - para que el vendedor sepa a quien atender primero.
+PRIORIDAD_INFO = {
+    "caliente": {"etiqueta": "🔥 Caliente", "clase": "prioridad-caliente"},
+    "tibio": {"etiqueta": "🌤 Tibio", "clase": "prioridad-tibio"},
+    "frio": {"etiqueta": "❄ Frio", "clase": "prioridad-frio"},
+}
+
+
+def info_prioridad(prioridad: str) -> dict:
+    return PRIORIDAD_INFO.get(prioridad or "", {"etiqueta": "Sin clasificar", "clase": "prioridad-ninguna"})
 
 
 def _vendedor_actual_id():
@@ -987,6 +1003,7 @@ def dashboard():
     resumen["ganancia_hoy"] = datos_por_dia[hoy_str]["ganancia"]
     serie_7dias = [{"dia": d, **datos_por_dia[d]} for d in dias_lista]
 
+    orden_prioridad = {"caliente": 0, "tibio": 1, "frio": 2}
     leads_nuevos = []
     for fila in filas_nuevos:
         lead = dict(fila)
@@ -994,7 +1011,13 @@ def dashboard():
         info_origen = info_origen_contacto(lead["origen"])
         lead["origen_etiqueta"] = info_origen["etiqueta"]
         lead["origen_clase"] = info_origen["clase"]
+        info_prio = info_prioridad(lead["prioridad_ia"])
+        lead["prioridad_etiqueta"] = info_prio["etiqueta"]
+        lead["prioridad_clase"] = info_prio["clase"]
         leads_nuevos.append(lead)
+    # Los que la IA ya marco "caliente" (listos para comprar) van primero,
+    # para que el vendedor sepa a quien atender de una vez.
+    leads_nuevos.sort(key=lambda l: orden_prioridad.get(l["prioridad_ia"], 3))
 
     return render_template(
         "dashboard.html",
@@ -1083,6 +1106,155 @@ def _procesar_lead_meta(leadgen_id: str, ajustes: dict):
         conn.close()
 
 
+def _ultimos_digitos(telefono: str, cantidad: int = 9) -> str:
+    solo_digitos = "".join(c for c in (telefono or "") if c.isdigit())
+    return solo_digitos[-cantidad:] if solo_digitos else ""
+
+
+def _buscar_contacto_por_whatsapp(conn, numero_wa: str):
+    """El numero que manda WhatsApp viene siempre en formato internacional
+    (ej. 593991234567), pero en el CRM los telefonos se guardan en formatos
+    distintos (0991234567, +593..., con espacios, etc.) - se compara por los
+    ultimos 9 digitos (el numero de celular sin el codigo de pais ni el 0
+    inicial), que es estable sin importar el formato."""
+    objetivo = _ultimos_digitos(numero_wa)
+    if not objetivo:
+        return None
+    for fila in conn.execute("SELECT * FROM contactos"):
+        if _ultimos_digitos(fila["telefono"]) == objetivo:
+            return fila
+    return None
+
+
+def _procesar_mensaje_whatsapp(valor: dict, ajustes: dict):
+    """Un mensaje nuevo de WhatsApp: lo guarda en el historial del contacto
+    y, si el asistente de IA esta activo y no esta pausado para este
+    contacto, le contesta solo."""
+    mensajes_entrantes = valor.get("messages") or []
+    if not mensajes_entrantes:
+        return  # son confirmaciones de entrega/lectura ("statuses"), no mensajes nuevos
+
+    perfiles = {c.get("wa_id"): (c.get("profile") or {}).get("name", "") for c in valor.get("contacts", [])}
+
+    conn = database.get_connection()
+    try:
+        for msg in mensajes_entrantes:
+            wa_message_id = msg.get("id", "")
+            if wa_message_id and conn.execute(
+                "SELECT 1 FROM mensajes WHERE wa_message_id = ?", (wa_message_id,)
+            ).fetchone():
+                continue  # Meta reintenta la entrega si tardamos en responder
+
+            numero_wa = msg.get("from", "")
+            if not numero_wa:
+                continue
+            texto = (msg.get("text") or {}).get("body", "")
+            if msg.get("type") != "text":
+                texto = "[Mensaje que no es texto - revisar directo en WhatsApp]"
+
+            contacto = _buscar_contacto_por_whatsapp(conn, numero_wa)
+            if not contacto:
+                nombre_perfil = perfiles.get(numero_wa) or "Lead de WhatsApp"
+                cursor = conn.execute(
+                    "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en) "
+                    "VALUES (?, ?, 'whatsapp', 'nuevo', ?)",
+                    (nombre_perfil, numero_wa, database.ahora_iso()),
+                )
+                registrar_actividad(conn, "contacto", f"Nuevo contacto por WhatsApp: {nombre_perfil}")
+                conn.commit()
+                contacto = conn.execute("SELECT * FROM contactos WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            contacto_id = contacto["id"]
+
+            conversacion = conn.execute(
+                "SELECT * FROM conversaciones WHERE contacto_id = ? AND canal = 'whatsapp'", (contacto_id,)
+            ).fetchone()
+            if conversacion:
+                conversacion_id = conversacion["id"]
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO conversaciones (canal, contacto_id, identificador_externo, nombre_externo, creado_en) "
+                    "VALUES ('whatsapp', ?, ?, ?, ?)",
+                    (contacto_id, numero_wa, perfiles.get(numero_wa, ""), database.ahora_iso()),
+                )
+                conversacion_id = cursor.lastrowid
+
+            ahora = database.ahora_iso()
+            conn.execute(
+                "INSERT INTO mensajes (conversacion_id, autor, texto, wa_message_id, fecha) "
+                "VALUES (?, 'cliente', ?, ?, ?)",
+                (conversacion_id, texto, wa_message_id, ahora),
+            )
+            conn.execute(
+                "UPDATE conversaciones SET ultimo_mensaje = ?, ultimo_mensaje_en = ?, no_leidos = no_leidos + 1 WHERE id = ?",
+                (texto, ahora, conversacion_id),
+            )
+            conn.commit()
+
+            asistente_listo = (
+                ajustes.get("whatsapp_asistente_activo") == "1"
+                and not contacto["ia_pausada"]
+                and ajustes.get("anthropic_api_key")
+                and ajustes.get("whatsapp_phone_number_id")
+                and ajustes.get("whatsapp_access_token")
+            )
+            if not asistente_listo:
+                continue
+
+            historial = [
+                dict(f) for f in conn.execute(
+                    "SELECT autor, texto FROM mensajes WHERE conversacion_id = ? ORDER BY fecha ASC LIMIT 30",
+                    (conversacion_id,),
+                ).fetchall()
+            ]
+            try:
+                resultado = asistente_ia.generar_respuesta(ajustes, dict(contacto), historial)
+            except Exception as exc:
+                registrar_actividad(conn, "contacto", f"Fallo el asistente de IA con {contacto['nombre']}: {exc}")
+                conn.commit()
+                continue
+
+            conn.execute(
+                "UPDATE contactos SET prioridad_ia = ?, ia_pausada = ? WHERE id = ?",
+                (resultado["prioridad"], 1 if resultado["listo_para_vendedor"] else 0, contacto_id),
+            )
+            if resultado.get("resumen_interno"):
+                nota_ia = f"[IA {ahora[:16]}] {resultado['resumen_interno']}"
+                notas_previas = (contacto["notas"] or "").strip()
+                conn.execute(
+                    "UPDATE contactos SET notas = ? WHERE id = ?",
+                    ((notas_previas + "\n" + nota_ia).strip() if notas_previas else nota_ia, contacto_id),
+                )
+
+            try:
+                wa_id_respuesta = whatsapp_api.enviar_mensaje_texto(
+                    numero_wa, resultado["mensaje"],
+                    ajustes["whatsapp_phone_number_id"], ajustes["whatsapp_access_token"],
+                )
+            except urllib.error.URLError as exc:
+                registrar_actividad(conn, "contacto", f"No se pudo enviar la respuesta de WhatsApp a {contacto['nombre']}: {exc}")
+                conn.commit()
+                continue
+
+            ahora_respuesta = database.ahora_iso()
+            conn.execute(
+                "INSERT INTO mensajes (conversacion_id, autor, texto, wa_message_id, fecha) "
+                "VALUES (?, 'ia', ?, ?, ?)",
+                (conversacion_id, resultado["mensaje"], wa_id_respuesta, ahora_respuesta),
+            )
+            conn.execute(
+                "UPDATE conversaciones SET ultimo_mensaje = ?, ultimo_mensaje_en = ? WHERE id = ?",
+                (resultado["mensaje"], ahora_respuesta, conversacion_id),
+            )
+            if resultado["listo_para_vendedor"]:
+                registrar_actividad(
+                    conn, "contacto",
+                    f"El asistente de IA preparo a {contacto['nombre']} y lo dejo listo para un vendedor",
+                )
+            conn.commit()
+    finally:
+        conn.close()
+
+
 @app.route("/webhooks/meta", methods=["GET"])
 def meta_webhook_verificar():
     """Meta llama a esto una sola vez, al momento de activar el webhook en
@@ -1112,11 +1284,13 @@ def meta_webhook_recibir():
     datos = request.get_json(force=True, silent=True) or {}
     for entrada in datos.get("entry", []):
         for cambio in entrada.get("changes", []):
-            if cambio.get("field") != "leadgen":
-                continue
-            leadgen_id = (cambio.get("value") or {}).get("leadgen_id")
-            if leadgen_id:
-                _procesar_lead_meta(str(leadgen_id), ajustes)
+            campo = cambio.get("field")
+            if campo == "leadgen":
+                leadgen_id = (cambio.get("value") or {}).get("leadgen_id")
+                if leadgen_id:
+                    _procesar_lead_meta(str(leadgen_id), ajustes)
+            elif campo == "messages":
+                _procesar_mensaje_whatsapp(cambio.get("value") or {}, ajustes)
     return jsonify({"ok": True})
 
 
@@ -1200,6 +1374,9 @@ def contactos():
         info_origen = info_origen_contacto(c["origen"])
         c["origen_etiqueta"] = info_origen["etiqueta"]
         c["origen_clase"] = info_origen["clase"]
+        info_prio = info_prioridad(c["prioridad_ia"])
+        c["prioridad_etiqueta"] = info_prio["etiqueta"]
+        c["prioridad_clase"] = info_prio["clase"]
         lista.append(c)
 
     opciones_origen = [(o, info_origen_contacto(o)["etiqueta"]) for o in origenes_en_uso]
@@ -1352,6 +1529,91 @@ def api_contacto_registrar_seguimiento(contacto_id):
     return jsonify({"ok": True, "etiqueta": info["etiqueta"], "clase": info["clase"]})
 
 
+@app.route("/api/contactos/<int:contacto_id>/ia-pausa", methods=["POST"])
+def api_contacto_ia_pausa(contacto_id):
+    """El vendedor pausa o reanuda al asistente de IA para este contacto en
+    particular - util cuando quiere tomar la conversacion el mismo."""
+    datos = request.get_json(force=True) or {}
+    pausada = bool(datos.get("pausada"))
+    conn = database.get_connection()
+    try:
+        contacto = conn.execute("SELECT * FROM contactos WHERE id = ?", (contacto_id,)).fetchone()
+        if not contacto:
+            return jsonify({"error": "Ese contacto no existe."}), 404
+        if not _puede_gestionar_contacto(contacto):
+            return jsonify({"error": "Ese contacto no es tuyo."}), 403
+        _reclamar_contacto_si_libre(conn, contacto)
+        conn.execute("UPDATE contactos SET ia_pausada = ? WHERE id = ?", (1 if pausada else 0, contacto_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "ia_pausada": pausada})
+
+
+@app.route("/api/contactos/<int:contacto_id>/mensaje-whatsapp", methods=["POST"])
+def api_contacto_enviar_mensaje_whatsapp(contacto_id):
+    """El vendedor escribe un mensaje de WhatsApp a mano desde el CRM (no el
+    asistente de IA) - lo manda de verdad por la API y lo deja en el
+    historial. Pausa la IA para este contacto de una vez: si el vendedor ya
+    esta escribiendo, el asistente no debe contestarle por encima."""
+    datos = request.get_json(force=True) or {}
+    texto = (datos.get("texto") or "").strip()
+    if not texto:
+        return jsonify({"error": "Escribe un mensaje."}), 400
+
+    ajustes = obtener_ajustes()
+    if not ajustes.get("whatsapp_phone_number_id") or not ajustes.get("whatsapp_access_token"):
+        return jsonify({"error": "WhatsApp todavia no esta configurado en Ajustes."}), 400
+
+    conn = database.get_connection()
+    try:
+        contacto = conn.execute("SELECT * FROM contactos WHERE id = ?", (contacto_id,)).fetchone()
+        if not contacto:
+            return jsonify({"error": "Ese contacto no existe."}), 404
+        if not _puede_gestionar_contacto(contacto):
+            return jsonify({"error": "Ese contacto no es tuyo."}), 403
+        _reclamar_contacto_si_libre(conn, contacto)
+
+        conversacion = conn.execute(
+            "SELECT * FROM conversaciones WHERE contacto_id = ? AND canal = 'whatsapp'", (contacto_id,)
+        ).fetchone()
+        numero_wa = whatsapp.normalizar_telefono(contacto["telefono"], ajustes["prefijo_telefono"])
+        if conversacion:
+            conversacion_id = conversacion["id"]
+        else:
+            cursor = conn.execute(
+                "INSERT INTO conversaciones (canal, contacto_id, identificador_externo, nombre_externo, creado_en) "
+                "VALUES ('whatsapp', ?, ?, ?, ?)",
+                (contacto_id, numero_wa, contacto["nombre"], database.ahora_iso()),
+            )
+            conversacion_id = cursor.lastrowid
+
+        try:
+            wa_message_id = whatsapp_api.enviar_mensaje_texto(
+                numero_wa, texto, ajustes["whatsapp_phone_number_id"], ajustes["whatsapp_access_token"],
+            )
+        except urllib.error.URLError as exc:
+            return jsonify({"error": f"No se pudo enviar: {exc}"}), 502
+
+        ahora = database.ahora_iso()
+        usuario = g.get("usuario")
+        conn.execute(
+            "INSERT INTO mensajes (conversacion_id, autor, texto, wa_message_id, fecha) "
+            "VALUES (?, 'vendedor', ?, ?, ?)",
+            (conversacion_id, texto, wa_message_id, ahora),
+        )
+        conn.execute(
+            "UPDATE conversaciones SET ultimo_mensaje = ?, ultimo_mensaje_en = ? WHERE id = ?",
+            (texto, ahora, conversacion_id),
+        )
+        conn.execute("UPDATE contactos SET ia_pausada = 1 WHERE id = ?", (contacto_id,))
+        registrar_actividad(conn, "contacto", f"Le escribio por WhatsApp a {contacto['nombre']} ({usuario['nombre'] if usuario else 'Sistema'})")
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/cotizaciones/<int:cotizacion_id>/eliminar", methods=["POST"])
 def api_cotizacion_eliminar(cotizacion_id):
     """Elimina una cotizacion (y su PDF): se usa tanto desde el pipeline
@@ -1494,6 +1756,16 @@ def contacto_detalle(contacto_id):
             "SELECT * FROM seguimientos_contacto WHERE contacto_id = ? ORDER BY fecha DESC", (contacto_id,)
         ).fetchall()
         scripts_crudos = conn.execute("SELECT * FROM scripts_venta ORDER BY orden").fetchall()
+        conversacion_wa = conn.execute(
+            "SELECT * FROM conversaciones WHERE contacto_id = ? AND canal = 'whatsapp'", (contacto_id,)
+        ).fetchone()
+        mensajes_wa = []
+        if conversacion_wa:
+            mensajes_wa = conn.execute(
+                "SELECT * FROM mensajes WHERE conversacion_id = ? ORDER BY fecha ASC", (conversacion_wa["id"],)
+            ).fetchall()
+            conn.execute("UPDATE conversaciones SET no_leidos = 0 WHERE id = ?", (conversacion_wa["id"],))
+            conn.commit()
     finally:
         conn.close()
     ajustes = obtener_ajustes()
@@ -1525,6 +1797,8 @@ def contacto_detalle(contacto_id):
         wa_link=wa_link,
         scripts=scripts,
         origen_info=info_origen_contacto(contacto["origen"]),
+        prioridad_info=info_prioridad(contacto["prioridad_ia"]),
+        mensajes_wa=mensajes_wa,
     )
 
 
@@ -2118,6 +2392,25 @@ def ajustes_meta_guardar():
 def ajustes_meta_regenerar_token():
     database.guardar_ajustes({"meta_verify_token": secrets.token_urlsafe(24)})
     flash("Token de verificacion regenerado - actualizalo tambien en el panel de Meta.", "ok")
+    return redirect(url_for("ajustes_vista"))
+
+
+@app.route("/ajustes/asistente-ia", methods=["POST"])
+@auth.requiere_admin
+def ajustes_asistente_ia_guardar():
+    database.guardar_ajustes({
+        "anthropic_api_key": request.form.get("anthropic_api_key", "").strip(),
+        "whatsapp_phone_number_id": request.form.get("whatsapp_phone_number_id", "").strip(),
+        "whatsapp_access_token": request.form.get("whatsapp_access_token", "").strip(),
+        "whatsapp_asistente_activo": "1" if request.form.get("whatsapp_asistente_activo") == "on" else "0",
+    })
+    conn = database.get_connection()
+    try:
+        registrar_actividad(conn, "ajustes", "Actualizo la configuracion del asistente de IA / WhatsApp")
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Configuracion del asistente de IA guardada.", "ok")
     return redirect(url_for("ajustes_vista"))
 
 
