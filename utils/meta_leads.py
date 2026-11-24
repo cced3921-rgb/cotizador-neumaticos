@@ -57,41 +57,77 @@ def _sin_acentos(texto: str) -> str:
     return texto.lower().translate(equivalencias)
 
 
+# Campos del formulario que no aportan nada util al vendedor (metadatos
+# internos de Meta, no respuestas de la persona) - se descartan al armar las
+# notas con "lo demas que respondio".
+_CAMPOS_IGNORADOS_EN_NOTAS = {"inbox_url", "platform", "partner_name", "vehicle_make", "is_organic"}
+
+
 def extraer_datos_contacto(datos_lead: dict):
     """El formulario de Meta puede traer distintos nombres de campo segun
     como se armo (full_name vs first_name+last_name, phone_number vs
     phone) - aqui se normaliza a lo que necesita nuestro CRM. Si el
     formulario uso preguntas personalizadas (no los campos estandar de
     Meta), se busca por palabras clave en el nombre de la pregunta.
-    Devuelve (nombre, telefono, email)."""
+    Cualquier otra pregunta que haya respondido (ej. "que rin busca",
+    "medidas") se guarda aparte como notas, para que el vendedor no tenga
+    que volver a preguntarselo. Devuelve (nombre, telefono, email, notas)."""
     campos = {}
     for campo in datos_lead.get("field_data", []):
         valores = campo.get("values") or []
         campos[campo.get("name", "")] = valores[0] if valores else ""
 
-    nombre = (
-        campos.get("full_name")
-        or f"{campos.get('first_name', '')} {campos.get('last_name', '')}".strip()
-        or ""
-    )
-    telefono = campos.get("phone_number") or campos.get("phone") or ""
+    claves_usadas = set()
+    nombre = campos.get("full_name")
+    if nombre:
+        claves_usadas.add("full_name")
+    elif campos.get("first_name") or campos.get("last_name"):
+        nombre = f"{campos.get('first_name', '')} {campos.get('last_name', '')}".strip()
+        claves_usadas.update({"first_name", "last_name"})
+    else:
+        nombre = ""
+
+    if campos.get("phone_number"):
+        telefono, clave_telefono = campos["phone_number"], "phone_number"
+    elif campos.get("phone"):
+        telefono, clave_telefono = campos["phone"], "phone"
+    else:
+        telefono, clave_telefono = "", None
+    if clave_telefono:
+        claves_usadas.add(clave_telefono)
+
     email = campos.get("email") or ""
+    if email:
+        claves_usadas.add("email")
 
     if not nombre or not telefono or not email:
         for clave, valor in campos.items():
+            if clave in claves_usadas:
+                continue
             clave_normalizada = _sin_acentos(clave)
             if not telefono and any(
                 palabra in clave_normalizada
                 for palabra in ("telefono", "phone", "celular", "whatsapp")
             ):
-                telefono = valor
-            if not nombre and any(
+                telefono, clave_telefono = valor, clave
+                claves_usadas.add(clave)
+            elif not nombre and any(
                 palabra in clave_normalizada for palabra in ("nombre", "name")
             ):
                 nombre = valor
-            if not email and any(
+                claves_usadas.add(clave)
+            elif not email and any(
                 palabra in clave_normalizada for palabra in ("correo", "email", "mail")
             ):
                 email = valor
+                claves_usadas.add(clave)
 
-    return (nombre or "Lead de Facebook").strip(), telefono.strip(), email.strip()
+    lineas_notas = []
+    for clave, valor in campos.items():
+        if clave in claves_usadas or clave in _CAMPOS_IGNORADOS_EN_NOTAS or not valor:
+            continue
+        etiqueta = clave.replace("_", " ").strip().capitalize()
+        lineas_notas.append(f"{etiqueta}: {valor}")
+    notas = "\n".join(lineas_notas)
+
+    return (nombre or "Lead de Facebook").strip(), telefono.strip(), email.strip(), notas

@@ -679,6 +679,31 @@ def _vendedor_actual_id():
     return None if auth.es_admin() else g.usuario["id"]
 
 
+# Un contacto sin vendedor asignado (vendedor_id NULL - asi llegan los leads
+# automaticos de Meta, las importaciones masivas, etc.) es del "equipo": lo
+# puede ver y gestionar cualquier vendedor activo, no solo el admin. En
+# cuanto un vendedor lo toca de verdad (cambia su estado, registra que paso,
+# le manda una cotizacion), se "reclama" solo - pasa a ser suyo, para que
+# dos vendedores no terminen trabajando al mismo cliente por separado.
+def _puede_gestionar_contacto(contacto_fila) -> bool:
+    return (
+        auth.es_admin()
+        or contacto_fila["vendedor_id"] is None
+        or contacto_fila["vendedor_id"] == g.usuario["id"]
+    )
+
+
+def _reclamar_contacto_si_libre(conn, contacto_fila):
+    """Si nadie lo tenia asignado y quien actua es un vendedor (no el
+    admin), se lo asigna de una vez. Admin no reclama nada para si mismo -
+    sigue viendo todo el equipo."""
+    if contacto_fila["vendedor_id"] is None and not auth.es_admin():
+        conn.execute(
+            "UPDATE contactos SET vendedor_id = ? WHERE id = ?",
+            (g.usuario["id"], contacto_fila["id"]),
+        )
+
+
 def registrar_actividad(conn, accion: str, descripcion: str):
     """Deja una linea en la bitacora de actividad (visible solo para
     administradores en /actividad): quien hizo que y cuando. El nombre del
@@ -885,7 +910,7 @@ def dashboard():
         )
         params_sin_seguimiento = [hace_2_dias]
         if vendedor_id:
-            sql_sin_seguimiento += " AND vendedor_id = ?"
+            sql_sin_seguimiento += " AND (vendedor_id = ? OR vendedor_id IS NULL)"
             params_sin_seguimiento.append(vendedor_id)
         sin_seguimiento = conn.execute(sql_sin_seguimiento, params_sin_seguimiento).fetchone()[0]
         if sin_seguimiento:
@@ -931,7 +956,7 @@ def dashboard():
         )
         params_nuevos = []
         if vendedor_id:
-            sql_nuevos += "AND vendedor_id = ? "
+            sql_nuevos += "AND (vendedor_id = ? OR vendedor_id IS NULL) "
             params_nuevos.append(vendedor_id)
         sql_nuevos += "ORDER BY creado_en DESC"
         filas_nuevos = conn.execute(sql_nuevos, params_nuevos).fetchall()
@@ -1028,7 +1053,7 @@ def _procesar_lead_meta(leadgen_id: str, ajustes: dict):
             conn.commit()
             return
 
-        nombre, telefono, email = meta_leads.extraer_datos_contacto(datos_lead)
+        nombre, telefono, email, notas_extra = meta_leads.extraer_datos_contacto(datos_lead)
         if not telefono:
             registrar_actividad(conn, "contacto", f"Lead de Meta sin telefono, se omitio: {nombre}")
             conn.commit()
@@ -1042,9 +1067,9 @@ def _procesar_lead_meta(leadgen_id: str, ajustes: dict):
         else:
             fecha_formulario = meta_leads.fecha_lead_a_local(datos_lead.get("created_time", "")) or database.ahora_iso()
             cursor = conn.execute(
-                "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en, email) "
-                "VALUES (?, ?, 'facebook_ads', 'nuevo', ?, ?)",
-                (nombre, telefono, fecha_formulario, email),
+                "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en, email, notas) "
+                "VALUES (?, ?, 'facebook_ads', 'nuevo', ?, ?, ?)",
+                (nombre, telefono, fecha_formulario, email, notas_extra),
             )
             contacto_id = cursor.lastrowid
             registrar_actividad(conn, "contacto", f"Nuevo lead automatico de Facebook/Instagram: {nombre}")
@@ -1144,7 +1169,7 @@ def contactos():
         )
         params = []
         if vendedor_id:
-            sql += " AND vendedor_id = ?"
+            sql += " AND (vendedor_id = ? OR vendedor_id IS NULL)"
             params.append(vendedor_id)
         if estado:
             sql += " AND estado = ?"
@@ -1206,7 +1231,7 @@ def contactos_pipeline():
         )
         params = []
         if vendedor_id:
-            sql += "WHERE c.vendedor_id = ? "
+            sql += "WHERE (c.vendedor_id = ? OR c.vendedor_id IS NULL) "
             params.append(vendedor_id)
         sql += "ORDER BY COALESCE(c.ultimo_contacto, c.creado_en) DESC"
         filas = conn.execute(sql, params).fetchall()
@@ -1218,6 +1243,9 @@ def contactos_pipeline():
     for fila in filas:
         contacto = dict(fila)
         contacto["wa_link"] = whatsapp.construir_link_wa(fila["telefono"], "", ajustes["prefijo_telefono"])
+        info_origen = info_origen_contacto(contacto["origen"])
+        contacto["origen_etiqueta"] = info_origen["etiqueta"]
+        contacto["origen_clase"] = info_origen["clase"]
         columnas.setdefault(contacto["estado"], []).append(contacto)
 
     return render_template(
@@ -1241,8 +1269,9 @@ def api_contacto_actualizar_estado(contacto_id):
         fila = conn.execute("SELECT * FROM contactos WHERE id = ?", (contacto_id,)).fetchone()
         if not fila:
             return jsonify({"error": "Ese contacto no existe."}), 404
-        if not auth.es_admin() and fila["vendedor_id"] != g.usuario["id"]:
+        if not _puede_gestionar_contacto(fila):
             return jsonify({"error": "Ese contacto no es tuyo."}), 403
+        _reclamar_contacto_si_libre(conn, fila)
         # La fecha de venta se guarda la primera vez que entra a "vendido"
         # (no se pisa si ya estaba vendido y solo se re-selecciona el mismo
         # estado); sirve para saber que se vendio HOY en el dashboard.
@@ -1285,8 +1314,9 @@ def api_contacto_registrar_seguimiento(contacto_id):
         contacto = conn.execute("SELECT * FROM contactos WHERE id = ?", (contacto_id,)).fetchone()
         if not contacto:
             return jsonify({"error": "Ese contacto no existe."}), 404
-        if not auth.es_admin() and contacto["vendedor_id"] != g.usuario["id"]:
+        if not _puede_gestionar_contacto(contacto):
             return jsonify({"error": "Ese contacto no es tuyo."}), 403
+        _reclamar_contacto_si_libre(conn, contacto)
 
         ahora = database.ahora_iso()
         usuario = g.get("usuario")
@@ -1336,7 +1366,7 @@ def api_cotizacion_eliminar(cotizacion_id):
         ).fetchone()
         if not fila:
             return jsonify({"error": "Esa cotizacion no existe."}), 404
-        if not auth.es_admin() and fila["contacto_vendedor_id"] != g.usuario["id"]:
+        if not auth.es_admin() and fila["contacto_vendedor_id"] not in (None, g.usuario["id"]):
             return jsonify({"error": "Esa cotizacion no es tuya."}), 403
 
         conn.execute("DELETE FROM cotizacion_items WHERE cotizacion_id = ?", (cotizacion_id,))
@@ -1405,13 +1435,15 @@ def contactos_importar():
     repetidos = 0
     try:
         for c in contactos_nuevos:
-            sql_existe = "SELECT 1 FROM contactos WHERE telefono = ?"
+            sql_existe = "SELECT id, vendedor_id FROM contactos WHERE telefono = ?"
             params_existe = [c["telefono"]]
             if not auth.es_admin():
-                sql_existe += " AND vendedor_id = ?"
+                sql_existe += " AND (vendedor_id = ? OR vendedor_id IS NULL)"
                 params_existe.append(vendedor_id)
             existente = conn.execute(sql_existe, params_existe).fetchone()
             if existente:
+                if not auth.es_admin() and existente["vendedor_id"] is None:
+                    conn.execute("UPDATE contactos SET vendedor_id = ? WHERE id = ?", (vendedor_id, existente["id"]))
                 repetidos += 1
                 continue
             conn.execute(
@@ -1436,7 +1468,7 @@ def contactos_importar():
 
 
 def _puede_ver_contacto(contacto_fila) -> bool:
-    return auth.es_admin() or contacto_fila["vendedor_id"] == g.usuario["id"]
+    return _puede_gestionar_contacto(contacto_fila)
 
 
 @app.route("/contactos/<int:contacto_id>")
@@ -1536,7 +1568,7 @@ def cotizar():
         sql = "SELECT id, nombre, telefono FROM contactos"
         params = []
         if vendedor_id:
-            sql += " WHERE vendedor_id = ?"
+            sql += " WHERE (vendedor_id = ? OR vendedor_id IS NULL)"
             params.append(vendedor_id)
         sql += " ORDER BY nombre"
         contactos_lista = conn.execute(sql, params).fetchall()
@@ -1611,7 +1643,7 @@ def venta_manual():
         sql = "SELECT id, nombre, telefono FROM contactos"
         params = []
         if vendedor_id:
-            sql += " WHERE vendedor_id = ?"
+            sql += " WHERE (vendedor_id = ? OR vendedor_id IS NULL)"
             params.append(vendedor_id)
         sql += " ORDER BY nombre"
         contactos_lista = conn.execute(sql, params).fetchall()
@@ -1641,19 +1673,21 @@ def api_venta_manual():
             ).fetchone()
             if not contacto_existente or not _puede_ver_contacto(contacto_existente):
                 return jsonify({"error": "Ese contacto no es tuyo."}), 403
+            _reclamar_contacto_si_libre(conn, contacto_existente)
         else:
             nombre = (datos.get("nombre") or "").strip()
             telefono = (datos.get("telefono") or "").strip()
             if not nombre or not telefono:
                 return jsonify({"error": "Falta nombre o telefono del cliente."}), 400
-            sql_existe = "SELECT id FROM contactos WHERE telefono = ?"
+            sql_existe = "SELECT * FROM contactos WHERE telefono = ?"
             params_existe = [telefono]
             if not auth.es_admin():
-                sql_existe += " AND vendedor_id = ?"
+                sql_existe += " AND (vendedor_id = ? OR vendedor_id IS NULL)"
                 params_existe.append(g.usuario["id"])
             existente = conn.execute(sql_existe, params_existe).fetchone()
             if existente:
                 contacto_id = existente["id"]
+                _reclamar_contacto_si_libre(conn, existente)
             else:
                 cursor = conn.execute(
                     "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en, vendedor_id) "
@@ -1859,19 +1893,21 @@ def api_cotizar_generar():
             ).fetchone()
             if not contacto_existente or not _puede_ver_contacto(contacto_existente):
                 return jsonify({"error": "Ese contacto no es tuyo."}), 403
+            _reclamar_contacto_si_libre(conn, contacto_existente)
         else:
             nombre = (datos.get("nombre") or "").strip()
             telefono = (datos.get("telefono") or "").strip()
             if not nombre or not telefono:
                 return jsonify({"error": "Falta nombre o telefono del contacto."}), 400
-            sql_existe = "SELECT id FROM contactos WHERE telefono = ?"
+            sql_existe = "SELECT * FROM contactos WHERE telefono = ?"
             params_existe = [telefono]
             if not auth.es_admin():
-                sql_existe += " AND vendedor_id = ?"
+                sql_existe += " AND (vendedor_id = ? OR vendedor_id IS NULL)"
                 params_existe.append(g.usuario["id"])
             existente = conn.execute(sql_existe, params_existe).fetchone()
             if existente:
                 contacto_id = existente["id"]
+                _reclamar_contacto_si_libre(conn, existente)
             else:
                 cursor = conn.execute(
                     "INSERT INTO contactos (nombre, telefono, origen, estado, creado_en, vendedor_id) "

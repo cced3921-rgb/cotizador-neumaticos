@@ -28,6 +28,7 @@
       {% for c in columnas[estado] %}
       <div class="tarjeta-pipeline" draggable="true" data-id="{{ c.id }}" data-valor="{{ c.valor_cotizado }}">
         <a href="{{ url_for('contacto_detalle', contacto_id=c.id) }}" class="tarjeta-pipeline-nombre">{{ c.nombre }}</a>
+        <span class="etiqueta-origen {{ c.origen_clase }}" style="margin-bottom:4px; display:inline-block;">{{ c.origen_etiqueta }}</span>
         <div class="tarjeta-pipeline-telefono">{{ c.telefono }}</div>
         {% if c.num_cotizaciones %}
         <div class="tarjeta-pipeline-valor">${{ "%.2f"|format(c.valor_cotizado) }} · {{ c.num_cotizaciones }} cotiz.</div>
