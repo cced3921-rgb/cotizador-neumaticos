@@ -49,6 +49,7 @@ RUTAS_PUBLICAS = {
     # rutas se protegen con su propio token/firma, no con login.
     "meta_webhook_verificar",
     "meta_webhook_recibir",
+    "politica_privacidad",
 }
 
 

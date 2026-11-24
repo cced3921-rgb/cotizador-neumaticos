@@ -1034,6 +1034,37 @@ def meta_webhook_recibir():
     return jsonify({"ok": True})
 
 
+@app.route("/privacidad")
+def politica_privacidad():
+    """Pagina publica simple, requerida por Meta for Developers para poder
+    activar la app que conecta los formularios de clientes potenciales."""
+    html = """<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Politica de privacidad - Enllantados</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #222; }
+h1 { font-size: 1.5rem; }
+</style>
+</head>
+<body>
+<h1>Politica de privacidad</h1>
+<p>Enllantados usa esta integracion unicamente para recibir, dentro de su
+propio sistema interno (CRM), los datos de contacto (nombre y telefono) que
+una persona entrega voluntariamente al llenar un formulario de "clientes
+potenciales" en un anuncio de Facebook o Instagram.</p>
+<p>Esta informacion se usa solo para que el equipo de ventas de Enllantados
+se comunique con esa persona sobre su cotizacion de neumaticos. No se vende
+ni se comparte con terceros.</p>
+<p>Si deseas que eliminemos tus datos de nuestro sistema, escribenos a
+cced3921@gmail.com.</p>
+</body>
+</html>"""
+    return html
+
+
 @app.route("/contactos")
 def contactos():
     estado = request.args.get("estado", "")
